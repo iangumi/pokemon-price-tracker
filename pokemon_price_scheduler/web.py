@@ -240,14 +240,15 @@ def api_card_detail(slug: str):
         (s.url for s in product.sources if s.kind == "tokopedia_find"), ""
     )
 
-    html = f"""{metrics_html}
+    html = f"""
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:var(--sp-2)">
+      <button class="btn" onclick="window.open('{tokopedia_url}', '_blank')">Check Tokopedia Price</button>
+      <button class="btn" onclick="refreshCard('{slug}')">Refresh Prices</button>
+    </div>
+    {metrics_html}
     {identity_html}
     {chart_html}
-    {sources_html}
-    <div style="margin-top:var(--sp-3)">
-      <button class="btn" onclick="window.open('{tokopedia_url}', '_blank')">Check Tokopedia Price</button>
-      <button class="btn" onclick="refreshCard('{slug}')" style="margin-left:8px">Refresh Prices</button>
-    </div>"""
+    {sources_html}"""
 
     return html, 200, {"Content-Type": "text/html"}
 
