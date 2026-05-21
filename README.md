@@ -56,7 +56,7 @@ Titles containing words like `Japanese`, `JPN`, `JP`, `English`, or `ENG` are au
 ## Sync Tokopedia Store
 
 ```bash
-python3 -m pokemon_price_scheduler sync-store --url "https://www.tokopedia.com/iantechstore/product?sort=10"
+python3 -m pokemon_price_scheduler sync-store --url "https://www.tokopedia.com/[store-name]/product?sort=10"
 ```
 
 This tries to extract products from the public store page and writes `data/store_products.json`. Tokopedia changes its frontend often, so review the file before relying on it. You can then copy useful entries into `config/products.json`.
@@ -96,7 +96,7 @@ Open `reports/dashboard.html` in a browser after a run. Each row shows your Toko
 On macOS/Linux cron, run:
 
 ```cron
-0 9 * * * cd "/Users/iangumilang/Documents/Pokemon store scheduler" && python3 -m pokemon_price_scheduler run --config config/products.generated.json >> data/cron.log 2>&1
+0 9 * * * cd "/Users/[username]/Documents/pokemon-store-scheduler" && python3 -m pokemon_price_scheduler run --config config/products.generated.json >> data/cron.log 2>&1
 ```
 
 The command is safe to run repeatedly; every run gets its own timestamped history.
