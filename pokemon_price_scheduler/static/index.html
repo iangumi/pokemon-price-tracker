@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pokemon Price Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="/htmx.min.js?v=3"></script>
+  <script defer src="/alpine.min.js?v=3"></script>
+  <style>
+    :root {
+      --bg:        #1a1a1e;
+      --surface:   #242428;
+      --surface-2: #2e2e34;
+      --border:    #3a3a42;
+      --text:      #e8e8ed;
+      --muted:     #8b8b96;
+      --accent:    #818cf8;
+      --accent-h:  #a5b4fc;
+      --green:     #4ade80;
+      --amber:     #fbbf24;
+      --red:       #f87171;
+      --font-display: 'Outfit', sans-serif;
+      --font-body:    'Inter', sans-serif;
+      --sp-1: 8px;
+      --sp-2: 16px;
+      --sp-3: 24px;
+      --sp-4: 32px;
+      --sp-5: 40px;
+      --sp-6: 48px;
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --motion-fast: 120ms ease;
+      --sidebar-w: 220px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: var(--font-body);
+      color: var(--text);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      display: flex;
+      min-height: 100vh;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-h); }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--surface); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .sidebar {
+      width: var(--sidebar-w);
+      min-width: var(--sidebar-w);
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      position: sticky;
+      top: 0;
+      overflow-y: auto;
+      flex-shrink: 0;
+    }
+    .sidebar-brand {
+      padding: var(--sp-3) var(--sp-3);
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-brand h1 {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      margin: 0;
+      letter-spacing: 0.02em;
+    }
+    .sidebar-brand span {
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .sidebar-section-label {
+      padding: var(--sp-3) var(--sp-3) var(--sp-1);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .sidebar nav {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 0 var(--sp-2) var(--sp-2);
+    }
+    .sidebar nav a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+      transition: all var(--motion-fast);
+      cursor: pointer;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+    }
+    .sidebar nav a:hover {
+      color: var(--text);
+      background: var(--surface-2);
+    }
+    .sidebar nav a.active {
+      color: var(--accent);
+      background: #818cf812;
+    }
+    .sidebar .spacer { flex: 1; }
+    .sidebar-footer {
+      padding: var(--sp-2) var(--sp-3);
+      border-top: 1px solid var(--border);
+    }
+    .sidebar-footer .btn {
+      width: 100%;
+      text-align: center;
+    }
+    .app {
+      display: flex;
+      flex: 1;
+      min-height: 100vh;
+    }
+    .content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .topbar {
+      padding: var(--sp-2) var(--sp-4);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+    }
+    .topbar h1 {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      margin: 0;
+      letter-spacing: -0.01em;
+      flex: 1;
+    }
+    .topbar-meta {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .main { padding: var(--sp-4); flex: 1; overflow-y: auto; }
+    .btn {
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--bg);
+      background: var(--accent);
+      border: none;
+      padding: 7px 14px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background var(--motion-fast), transform var(--motion-fast);
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--accent-h); }
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; transform: none; }
+    .btn.running { background: var(--amber); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    thead { background: var(--surface-2); }
+    th {
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 10px var(--sp-2);
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td {
+      padding: 10px var(--sp-2);
+      font-size: 13px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface-2); }
+    tr.alert-red td { background: #f8717115; }
+    tr.alert-amber td { background: #fbbf2415; }
+    .status-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .status-dot.ok     { background: var(--green); }
+    .status-dot.warn   { background: var(--amber); }
+    .status-dot.danger { background: var(--red); }
+    .status-dot.none   { background: var(--muted); }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: var(--sp-2);
+      margin-bottom: var(--sp-3);
+    }
+    .metrics > div {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--sp-2) var(--sp-3);
+    }
+    .metrics span {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .metrics strong {
+      display: block;
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+    dl {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 0 var(--sp-2);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--sp-2) var(--sp-3);
+    }
+    dt {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    dd {
+      margin: 0;
+      font-size: 13px;
+      color: var(--text);
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    dl > :last-child { border-bottom: none; }
+    img {
+      max-width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }
+    h2 {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--text);
+      margin: var(--sp-4) 0 var(--sp-2);
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: var(--sp-2);
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--sp-2) var(--sp-3);
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-1);
+      text-decoration: none;
+      color: var(--text);
+      transition: border-color var(--motion-fast), background var(--motion-fast);
+    }
+    .card:hover { border-color: var(--accent); background: var(--surface-2); }
+    .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-1); }
+    .card-title {
+      font-family: var(--font-display);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.4;
+      letter-spacing: 0.01em;
+    }
+    .alert-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 10px;
+      font-weight: 600;
+      font-family: var(--font-display);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .alert-badge.red   { background: #f8717115; color: var(--red); border: 1px solid var(--red); }
+    .alert-badge.amber { background: #fbbf2415; color: var(--amber); border: 1px solid var(--amber); }
+    .card-lang {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    .card-prices { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-1); margin-top: var(--sp-1); }
+    .price-box {
+      background: var(--surface-2);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+    }
+    .price-box span {
+      display: block;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .price-box strong {
+      display: block;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      font-family: var(--font-display);
+      letter-spacing: -0.01em;
+    }
+    .trend {
+      font-size: 11px;
+      font-weight: 600;
+      margin-top: 4px;
+      font-family: var(--font-display);
+    }
+    .trend.up      { color: var(--green); }
+    .trend.down    { color: var(--red); }
+    .trend.flat, .trend.neutral { color: var(--muted); }
+    .spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid var(--bg);
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .htmx-indicator {
+      opacity: 0;
+      transition: opacity 200ms ease;
+    }
+    .htmx-request .htmx-indicator {
+      opacity: 1;
+    }
+    .htmx-request.htmx-indicator {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body x-data="app()">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <h1>Pokemon Price</h1>
+      <span>Tracker</span>
+    </div>
+    <div class="sidebar-section-label">Navigation</div>
+    <nav>
+      <a href="/" :class="{ 'active': currentPage === 'dash' }" @click="navigateTo('/')">
+        <span>◈</span> Dashboard
+      </a>
+      <a href="/cards" :class="{ 'active': currentPage === 'cards' }" @click="navigateTo('/cards')">
+        <span>◫</span> My Cards
+      </a>
+      <a href="latest.md" :class="{ 'active': currentPage === 'reports' }" @click="setPage('reports')">
+        <span>◻</span> Reports
+      </a>
+      <a href="/opportunities" :class="{ 'active': currentPage === 'ops' }" @click="navigateTo('/opportunities')">
+        <span>◇</span> Opportunities
+      </a>
+    </nav>
+    <div class="spacer"></div>
+    <div class="sidebar-footer">
+      <button id="run-btn" class="btn" :class="{ 'running': schedulerState === 'running' }"
+              @click="runScheduler()" :disabled="schedulerState === 'running'">
+        <template x-if="schedulerState === 'running'">
+          <span class="spinner"></span>
+        </template>
+        <template x-if="schedulerState !== 'running'">
+          <span>Run Scheduler</span>
+        </template>
+      </button>
+      <p x-show="schedulerState === 'done'" style="font-size:11px;color:var(--green);margin:4px 0 0;text-align:center;">Done!</p>
+      <p x-show="schedulerState === 'error'" style="font-size:11px;color:var(--red);margin:4px 0 0;text-align:center;" x-text="errorMessage"></p>
+    </div>
+  </aside>
+
+  <!-- Main content area -->
+  <div class="content">
+    <!-- Topbar -->
+    <div class="topbar">
+      <h1 x-text="pageTitle">Dashboard</h1>
+      <div class="topbar-meta" x-text="pageMeta"></div>
+    </div>
+
+    <!-- Dynamic content -->
+    <main class="main" id="content" x-html="pageContent">
+    </main>
+  </div>
+
+  <script>
+    function app() {
+      return {
+        currentPage: 'dash',
+        pageTitle: 'Dashboard',
+        pageMeta: '',
+        pageContent: '',
+        schedulerState: 'idle',
+        errorMessage: '',
+
+        setPage(page) {
+          this.currentPage = page;
+          if (page === 'dash') {
+            this.pageTitle = 'Dashboard';
+            this.pageMeta = 'Red means your Tokopedia price is at least the configured alert threshold away from the global average.';
+          } else if (page === 'cards') {
+            this.pageTitle = 'My Cards';
+            this.pageMeta = 'Click any card to see full details and price history.';
+          } else if (page === 'ops') {
+            this.pageTitle = 'Buying Opportunities';
+            this.pageMeta = 'First-pass candidates from high global evidence plus low Tokopedia local supply.';
+          } else if (page === 'reports') {
+            this.pageTitle = 'Reports';
+            this.pageMeta = 'Markdown report from last run.';
+          }
+        },
+
+        navigateTo(path) {
+          var url = '/api/dashboard';
+          if (path === '/cards') {
+            this.setPage('cards');
+            url = '/api/cards';
+          } else if (path === '/opportunities') {
+            this.setPage('ops');
+            url = '/api/opportunities';
+          } else if (path.startsWith('/cards/')) {
+            this.currentPage = 'card-detail';
+            this.pageTitle = 'Card Detail';
+            this.pageMeta = 'Loading...';
+            url = '/api/cards/' + path.replace('/cards/', '');
+          } else {
+            this.setPage('dash');
+          }
+
+          var self = this;
+          this.pageContent = '<p id="loading-msg">LOADING: ' + url + '</p>';
+          console.log('Set loading:', url);
+          fetch(url)
+            .then(function(r) { return r.text(); })
+            .then(function(html) {
+              console.log('Fetched content length:', html.length);
+              self.pageContent = html;
+              if (self.currentPage === 'card-detail') {
+                self.pageMeta = 'Click any card to see full details and price history.';
+              }
+            })
+            .catch(function(e) {
+              console.error('Fetch error:', e);
+              self.pageContent = '<p>Error loading: ' + url + '</p>';
+            });
+        },
+
+        init() {
+          window.__INIT_CALLED = true;
+          var path = window.location.pathname;
+          this.navigateTo(path);
+        },
+
+        async runScheduler() {
+          if (this.schedulerState === 'running') return;
+          this.schedulerState = 'running';
+          this.errorMessage = '';
+
+          try {
+            var res = await fetch('/run', { method: 'POST' });
+            var data = await res.json();
+            if (!data.ok) {
+              this.schedulerState = 'error';
+              this.errorMessage = data.error || 'Unknown error';
+              return;
+            }
+
+            var evtSource = new EventSource('/run/status');
+            var self = this;
+            evtSource.onmessage = function(event) {
+              var status = event.data;
+              if (status === 'done') {
+                evtSource.close();
+                self.schedulerState = 'done';
+                self.navigateTo(window.location.pathname);
+              } else if (status === 'error') {
+                evtSource.close();
+                self.schedulerState = 'error';
+                self.errorMessage = 'Scheduler failed';
+              }
+            };
+            evtSource.onerror = function() {
+              evtSource.close();
+              self.schedulerState = 'idle';
+            };
+          } catch(e) {
+            this.schedulerState = 'error';
+            this.errorMessage = e.message;
+          }
+        },
+
+        refreshCard(slug) {
+          var self = this;
+          fetch('/run/' + slug, { method: 'POST' })
+            .then(function(res) { return res.json(); })
+            .then(function() {
+              self.navigateTo('/cards/' + slug);
+            });
+        }
+      };
+    }
+  </script>
+</body>
+</html>

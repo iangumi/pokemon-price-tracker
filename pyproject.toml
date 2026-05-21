@@ -1,0 +1,12 @@
+[project]
+name = "pokemon-store-scheduler"
+version = "0.1.0"
+description = "Daily/on-demand Pokemon card price checker for Tokopedia store listings."
+requires-python = ">=3.11"
+dependencies = ["flask>=3.0.0"]
+
+[project.scripts]
+pokemon-prices = "pokemon_price_scheduler.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
