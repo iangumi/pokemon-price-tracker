@@ -36,3 +36,24 @@ def load_config(path: Path = DEFAULT_CONFIG) -> tuple[dict[str, Any], list[Produ
             )
         )
     return settings, products
+
+
+def save_config(path: Path, settings: dict[str, Any], products: list[Product]) -> None:
+    payload = {
+        "settings": settings,
+        "products": [
+            {
+                "title": p.title,
+                "own_price_idr": p.own_price_idr,
+                "tokopedia_url": p.tokopedia_url,
+                "search_terms": p.search_terms,
+                "sources": [
+                    {"name": s.name, "kind": s.kind, "url": s.url}
+                    for s in p.sources
+                ],
+            }
+            for p in products
+        ],
+    }
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=False)

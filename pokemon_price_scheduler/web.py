@@ -6,10 +6,10 @@ import threading
 import time
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, render_template_string
+from flask import Flask, Response, jsonify, render_template_string, request
 
 from .history import get_all_products_with_trend
-from .models import utc_now
+from .models import Product, Source, utc_now
 
 BASE_DIR = Path(__file__).parent.parent
 STATIC_DIR = BASE_DIR / "static"
@@ -168,7 +168,11 @@ def api_cards():
           </div>
         </a>""")
 
-    html = f"""<div class="cards-grid">{"".join(cards) if cards else "<p>No cards configured.</p>"}</div>"""
+    html = f"""
+    <div style="display:flex;justify-content:flex-end;margin-bottom:var(--sp-2)">
+      <button class="btn" onclick="openAddCardModal()">+ Add Card</button>
+    </div>
+    <div class="cards-grid">{"".join(cards) if cards else "<p>No cards configured.</p>"}</div>"""
     return html, 200, {"Content-Type": "text/html"}
 
 
@@ -240,10 +244,17 @@ def api_card_detail(slug: str):
         (s.url for s in product.sources if s.kind == "tokopedia_find"), ""
     )
 
+    search_terms_display = product.search_terms[0] if product.search_terms else ""
     html = f"""
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:var(--sp-2)">
       <button class="btn" onclick="window.open('{tokopedia_url}', '_blank')">Check Tokopedia Price</button>
       <button class="btn" onclick="refreshCard('{slug}')">Refresh Prices</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:var(--sp-2);align-items:center;">
+      <label style="font-size:11px;color:var(--muted);white-space:nowrap;">Search Keyword:</label>
+      <input id="search-term-input" type="text" value="{search_terms_display}"
+             style="flex:1;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:6px 8px;font-size:12px;">
+      <button class="btn" onclick="updateSearchTerm('{slug}')">Save</button>
     </div>
     {metrics_html}
     {identity_html}
@@ -280,6 +291,71 @@ def api_opportunities():
 
 
 # ─── Actions ─────────────────────────────────────────────────────────────────
+
+@app.route("/api/cards/add", methods=["POST"])
+def add_card():
+    """Add a new card from Tokopedia URL and search keyword."""
+    from .config import load_config, save_config
+    from .card_parser import parse_card_identity
+
+    data = request.get_json()
+    tokopedia_url = data.get("tokopedia_url", "").strip()
+    search_keyword = data.get("search_keyword", "").strip()
+
+    if not tokopedia_url:
+        return jsonify({"ok": False, "error": "Tokopedia URL is required"}), 400
+
+    settings, products = load_config(CONFIG_PATH)
+
+    # Check if already exists
+    for p in products:
+        if p.tokopedia_url == tokopedia_url:
+            return jsonify({"ok": False, "error": "Card already exists", "slug": p.slug}), 409
+
+    # Build a placeholder title from search keyword for now
+    title = search_keyword if search_keyword else tokopedia_url.split("/")[-1].split("?")[0].replace("-", " ")
+    identity = parse_card_identity(title)
+
+    product = Product(
+        title=title,
+        own_price_idr=0,
+        tokopedia_url=tokopedia_url,
+        search_terms=[search_keyword] if search_keyword else [],
+        sources=[],
+    )
+
+    products.append(product)
+    save_config(CONFIG_PATH, settings, products)
+
+    return jsonify({"ok": True, "slug": product.slug}), 201
+
+
+@app.route("/api/cards/<slug>/search-term", methods=["PUT"])
+def update_search_term(slug: str):
+    """Update the search keyword for a card."""
+    from .config import load_config, save_config
+
+    data = request.get_json()
+    search_term = data.get("search_term", "").strip()
+
+    settings, products = load_config(CONFIG_PATH)
+    product = next((p for p in products if p.slug == slug), None)
+    if product is None:
+        return jsonify({"ok": False, "error": "Card not found"}), 404
+
+    # Update search_terms
+    product = Product(
+        title=product.title,
+        own_price_idr=product.own_price_idr,
+        tokopedia_url=product.tokopedia_url,
+        search_terms=[search_term] if search_term else [],
+        sources=product.sources,
+    )
+    products = [p if p.slug != slug else product for p in products]
+    save_config(CONFIG_PATH, settings, products)
+
+    return jsonify({"ok": True}), 200
+
 
 @app.route("/run/<slug>", methods=["POST"])
 def run_single_card(slug: str):

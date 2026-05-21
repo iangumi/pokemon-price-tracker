@@ -563,6 +563,147 @@
         }
       };
     }
+
+    function openAddCardModal() {
+      document.getElementById('add-card-modal').classList.add('open');
+    }
+
+    function closeAddCardModal() {
+      document.getElementById('add-card-modal').classList.remove('open');
+    }
+
+    async function submitAddCard() {
+      var tokopediaUrl = document.getElementById('new-card-url').value.trim();
+      var searchKeyword = document.getElementById('new-card-keyword').value.trim();
+      if (!tokopediaUrl) {
+        alert('Tokopedia URL is required');
+        return;
+      }
+      var res = await fetch('/api/cards/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tokopedia_url: tokopediaUrl, search_keyword: searchKeyword })
+      });
+      var data = await res.json();
+      if (!data.ok) {
+        alert(data.error || 'Failed to add card');
+        return;
+      }
+      closeAddCardModal();
+      window.location.href = '/cards/' + data.slug;
+    }
+
+    async function updateSearchTerm(slug) {
+      var input = document.getElementById('search-term-input');
+      if (!input) return;
+      var searchTerm = input.value.trim();
+      var res = await fetch('/api/cards/' + slug + '/search-term', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ search_term: searchTerm })
+      });
+      showToast(res.ok ? 'Search term updated' : 'Failed to update search term', res.ok ? 'ok' : 'error');
+    }
+
+    var _toastTimer;
+    function showToast(message, type) {
+      var el = document.getElementById('toast');
+      el.textContent = message;
+      el.className = 'toast ' + (type || 'ok');
+      el.classList.add('visible');
+      clearTimeout(_toastTimer);
+      _toastTimer = setTimeout(function() { el.classList.remove('visible'); }, 2500);
+    }
   </script>
+  <style>
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--sp-3);
+      width: 400px;
+      max-width: 90vw;
+    }
+    .modal h2 {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 600;
+      margin: 0 0 var(--sp-2);
+      padding-bottom: var(--sp-1);
+      border-bottom: 1px solid var(--border);
+    }
+    .modal label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .modal input {
+      width: 100%;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 13px;
+      margin-bottom: var(--sp-2);
+    }
+    .modal input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .modal-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 10px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 500;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 200ms ease, transform 200ms ease;
+      pointer-events: none;
+      z-index: 2000;
+    }
+    .toast.visible { opacity: 1; transform: translateY(0); }
+    .toast.ok     { border-color: var(--green); color: var(--green); }
+    .toast.error  { border-color: var(--red);   color: var(--red);   }
+  </style>
+  <div id="toast" class="toast"></div>
+  <div id="add-card-modal" class="modal-overlay" x-data="{}">
+    <div class="modal">
+      <h2>Add New Card</h2>
+      <label>Tokopedia URL</label>
+      <input id="new-card-url" type="url" placeholder="https://www.tokopedia.com/...">
+      <label>Search Keyword</label>
+      <input id="new-card-keyword" type="text" placeholder="Pikachu KFC PROMO PSA 10">
+      <div class="modal-actions">
+        <button class="btn" onclick="closeAddCardModal()">Cancel</button>
+        <button class="btn" onclick="submitAddCard()">Add Card</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
