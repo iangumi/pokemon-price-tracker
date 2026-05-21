@@ -129,6 +129,36 @@ def save_run(analyses: list[ProductAnalysis]) -> int:
         conn.close()
 
 
+def get_observations_for_slug(slug: str) -> list[dict]:
+    """Return the most recent observations for a slug from the DB."""
+    conn = connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT o.source_name, o.source_kind, o.url, o.title, o.price_idr, o.is_legit
+            FROM observations o
+            JOIN product_results pr ON pr.id = o.product_result_id
+            WHERE pr.slug = ?
+            AND pr.id = (SELECT MAX(id) FROM product_results WHERE slug = ?)
+            ORDER BY o.id
+            """,
+            (slug, slug),
+        ).fetchall()
+        return [
+            {
+                "source_name": row[0],
+                "source_kind": row[1],
+                "url": row[2],
+                "title": row[3],
+                "price_idr": int(row[4]),
+                "is_legit": bool(row[5]),
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
 def history_for_slug(slug: str) -> list[tuple[str, int, int | None]]:
     conn = connect()
     try:
@@ -154,7 +184,7 @@ def get_all_products_with_trend() -> list[dict]:
         rows = conn.execute(
             """
             WITH latest AS (
-                SELECT DISTINCT slug, title, language, own_price_idr, global_average_idr, alert_level, run_id
+                SELECT DISTINCT slug, title, language, own_price_idr, global_average_idr, price_delta_percent, alert_level, run_id
                 FROM product_results
                 WHERE id IN (
                     SELECT MAX(id) FROM product_results GROUP BY slug
@@ -172,7 +202,7 @@ def get_all_products_with_trend() -> list[dict]:
             )
             SELECT
                 l.slug, l.title, l.language, l.own_price_idr,
-                l.global_average_idr, l.alert_level,
+                l.global_average_idr, l.price_delta_percent, l.alert_level,
                 p.own_price_idr AS prev_own_price_idr,
                 p.global_average_idr AS prev_global_average_idr
             FROM latest l
@@ -183,9 +213,9 @@ def get_all_products_with_trend() -> list[dict]:
         products = []
         for row in rows:
             own_price = int(row[3]) if row[3] is not None else 0
-            prev_own = int(row[6]) if row[6] is not None else None
+            prev_own = int(row[7]) if row[7] is not None else None
             global_avg = int(row[4]) if row[4] is not None else None
-            prev_global = int(row[7]) if row[7] is not None else None
+            prev_global = int(row[8]) if row[8] is not None else None
 
             own_trend = None
             if prev_own is not None and prev_own > 0:
@@ -201,7 +231,8 @@ def get_all_products_with_trend() -> list[dict]:
                 "language": str(row[2]) if row[2] else "",
                 "own_price_idr": own_price,
                 "global_average_idr": global_avg,
-                "alert_level": str(row[5]) if row[5] else "none",
+                "price_delta_percent": float(row[5]) if row[5] is not None else None,
+                "alert_level": str(row[6]) if row[6] else "none",
                 "own_trend_percent": round(own_trend, 1) if own_trend is not None else None,
                 "market_trend_percent": round(market_trend, 1) if market_trend is not None else None,
             })

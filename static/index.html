@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,6 +9,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="/htmx.min.js?v=3"></script>
   <script defer src="/alpine.min.js?v=3"></script>
+  <script src="/jquery.min.js"></script>
+  <script src="/dataTables.min.js"></script>
   <style>
     :root {
       --bg:        #1a1a1e;
@@ -393,6 +395,168 @@
     .htmx-request.htmx-indicator {
       opacity: 1;
     }
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--sp-3);
+      width: 400px;
+      max-width: 90vw;
+    }
+    .modal h2 {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 600;
+      margin: 0 0 var(--sp-2);
+      padding-bottom: var(--sp-1);
+      border-bottom: 1px solid var(--border);
+    }
+    .modal label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .modal input {
+      width: 100%;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 13px;
+      margin-bottom: var(--sp-2);
+    }
+    .modal input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .modal-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 10px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 500;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 200ms ease, transform 200ms ease;
+      pointer-events: none;
+      z-index: 2000;
+    }
+    .toast.visible { opacity: 1; transform: translateY(0); }
+    .toast.ok     { border-color: var(--green); color: var(--green); }
+    .toast.error  { border-color: var(--red);   color: var(--red);   }
+
+    /* DataTables dark theme overrides */
+    #content .dataTables_wrapper { overflow-x: auto; }
+    #content .dataTables_filter { margin-bottom: var(--sp-2); }
+    #content .dataTables_filter input {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      padding: 6px 10px;
+      font-size: 13px;
+      outline: none;
+    }
+    #content .dataTables_filter input:focus { border-color: var(--accent); }
+    #content .dataTables_length { margin-bottom: var(--sp-2); }
+    #content .dataTables_length select {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      padding: 4px 8px;
+      font-size: 12px;
+      outline: none;
+    }
+    #content table.dataTable {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      border-collapse: separate;
+      overflow: hidden;
+    }
+    #content table.dataTable thead th {
+      background: var(--surface-2);
+      color: var(--muted);
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 10px var(--sp-2);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    #content table.dataTable tbody td {
+      padding: 10px var(--sp-2);
+      font-size: 13px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      vertical-align: middle;
+    }
+    #content table.dataTable tbody tr:last-child td { border-bottom: none; }
+    #content table.dataTable tbody tr:hover td { background: var(--surface-2); }
+    #content table.dataTable tbody tr.alert-red td { background: #f8717115; }
+    #content table.dataTable tbody tr.alert-amber td { background: #fbbf2415; }
+    #content .dataTables_info {
+      color: var(--muted);
+      font-size: 12px;
+      padding: var(--sp-1) 0;
+    }
+    #content .dataTables_paginate { padding: var(--sp-1) 0; }
+    #content .paginate_button {
+      display: inline-block;
+      padding: 5px 10px;
+      margin-right: 4px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      color: var(--text) !important;
+      cursor: pointer;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      transition: all var(--motion-fast);
+    }
+    #content .paginate_button:hover {
+      background: var(--surface);
+      border-color: var(--accent);
+      color: var(--accent) !important;
+    }
+    #content .paginate_button.current {
+      background: var(--accent) !important;
+      border-color: var(--accent) !important;
+      color: var(--bg) !important;
+      font-weight: 600;
+    }
+    #content .paginate_button.disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    #content .sorting { cursor: pointer; }
   </style>
 </head>
 <body x-data="app()">
@@ -502,6 +666,32 @@
               if (self.currentPage === 'card-detail') {
                 self.pageMeta = 'Click any card to see full details and price history.';
               }
+              if (path === '/' || path === '/api/dashboard') {
+                requestAnimationFrame(function() {
+                  if (window._dt) { window._dt.destroy(); window._dt = null; }
+                  var tbl = document.querySelector('#content table');
+                  if (tbl) {
+                    window._dt = new DataTable(tbl, {
+                      dom: 'lfrtip',
+                      pageLength: 10,
+                      order: [[7, 'desc']],
+                      columnDefs: [
+                        { targets: [5, 6], type: 'num' }
+                      ],
+                      createdRow: function(row, data, dataIndex) {
+                        var alert = row.cells[8].textContent.trim();
+                        if (alert === 'red') {
+                          row.cells[8].innerHTML = '<span class="alert-badge red">red</span>';
+                        } else if (alert === 'amber') {
+                          row.cells[8].innerHTML = '<span class="alert-badge amber">amber</span>';
+                        } else {
+                          row.cells[8].innerHTML = '-';
+                        }
+                      }
+                    });
+                  }
+                });
+              }
             })
             .catch(function(e) {
               console.error('Fetch error:', e);
@@ -554,15 +744,65 @@
         },
 
         refreshCard(slug) {
-          var self = this;
+          if (window._refreshing) return;
+          window._refreshing = slug;
+          var btn = document.getElementById('refresh-btn');
+          var btnText = document.getElementById('refresh-btn-text');
+          if (btn) btn.disabled = true;
+          if (btn) btn.classList.add('running');
+          if (btnText) btnText.innerHTML = '<span class="spinner"></span> Refreshing…';
           fetch('/run/' + slug, { method: 'POST' })
             .then(function(res) { return res.json(); })
-            .then(function() {
-              self.navigateTo('/cards/' + slug);
+            .then(function(data) {
+              if (!data.ok) {
+                window._refreshing = null;
+                if (btn) btn.disabled = false;
+                if (btn) btn.classList.remove('running');
+                if (btnText) btnText.textContent = 'Refresh Prices';
+                showToast(data.error || 'Refresh failed', 'error');
+                return;
+              }
+              var pollInterval = setInterval(function() {
+                fetch('/run/' + slug + '/status')
+                  .then(function(r) { return r.json(); })
+                  .then(function(status) {
+                    if (status.state === 'done') {
+                      clearInterval(pollInterval);
+                      window._refreshing = null;
+                      showToast('Prices refreshed', 'ok');
+                      window.location.href = '/cards/' + slug;
+                    } else if (status.state === 'error') {
+                      clearInterval(pollInterval);
+                      window._refreshing = null;
+                      if (btn) btn.disabled = false;
+                      if (btn) btn.classList.remove('running');
+                      if (btnText) btnText.textText = 'Refresh Prices';
+                      showToast('Refresh failed', 'error');
+                    }
+                  })
+                  .catch(function() {
+                    clearInterval(pollInterval);
+                    window._refreshing = null;
+                    if (btn) btn.disabled = false;
+                    if (btn) btn.classList.remove('running');
+                    if (btnText) btnText.textContent = 'Refresh Prices';
+                    showToast('Refresh failed', 'error');
+                  });
+              }, 1000);
+            })
+            .catch(function() {
+              window._refreshing = null;
+              if (btn) btn.disabled = false;
+              if (btn) btn.classList.remove('running');
+              if (btnText) btnText.textContent = 'Refresh Prices';
+              showToast('Refresh failed', 'error');
             });
         }
       };
     }
+
+    window._app = app();
+    window.refreshCard = window._app.refreshCard;
 
     function openAddCardModal() {
       document.getElementById('add-card-modal').classList.add('open');
@@ -576,7 +816,7 @@
       var tokopediaUrl = document.getElementById('new-card-url').value.trim();
       var searchKeyword = document.getElementById('new-card-keyword').value.trim();
       if (!tokopediaUrl) {
-        alert('Tokopedia URL is required');
+        showToast('Tokopedia URL is required', 'error');
         return;
       }
       var res = await fetch('/api/cards/add', {
@@ -586,7 +826,7 @@
       });
       var data = await res.json();
       if (!data.ok) {
-        alert(data.error || 'Failed to add card');
+        showToast(data.error || 'Failed to add card', 'error');
         return;
       }
       closeAddCardModal();
@@ -615,82 +855,6 @@
       _toastTimer = setTimeout(function() { el.classList.remove('visible'); }, 2500);
     }
   </script>
-  <style>
-    .modal-overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.6);
-      z-index: 1000;
-      align-items: center;
-      justify-content: center;
-    }
-    .modal-overlay.open { display: flex; }
-    .modal {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: var(--sp-3);
-      width: 400px;
-      max-width: 90vw;
-    }
-    .modal h2 {
-      font-family: var(--font-display);
-      font-size: 15px;
-      font-weight: 600;
-      margin: 0 0 var(--sp-2);
-      padding-bottom: var(--sp-1);
-      border-bottom: 1px solid var(--border);
-    }
-    .modal label {
-      display: block;
-      font-size: 11px;
-      font-weight: 500;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 4px;
-    }
-    .modal input {
-      width: 100%;
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      color: var(--text);
-      padding: 8px 10px;
-      font-size: 13px;
-      margin-bottom: var(--sp-2);
-    }
-    .modal input:focus {
-      outline: none;
-      border-color: var(--accent);
-    }
-    .modal-actions {
-      display: flex;
-      gap: 8px;
-      justify-content: flex-end;
-    }
-    .toast {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      padding: 10px 16px;
-      border-radius: var(--radius-sm);
-      font-size: 13px;
-      font-weight: 500;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      color: var(--text);
-      opacity: 0;
-      transform: translateY(8px);
-      transition: opacity 200ms ease, transform 200ms ease;
-      pointer-events: none;
-      z-index: 2000;
-    }
-    .toast.visible { opacity: 1; transform: translateY(0); }
-    .toast.ok     { border-color: var(--green); color: var(--green); }
-    .toast.error  { border-color: var(--red);   color: var(--red);   }
-  </style>
   <div id="toast" class="toast"></div>
   <div id="add-card-modal" class="modal-overlay" x-data="{}">
     <div class="modal">

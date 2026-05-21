@@ -8,7 +8,7 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template_string, request
 
-from .history import get_all_products_with_trend
+from .history import get_all_products_with_trend, get_observations_for_slug, history_for_slug
 from .models import Product, Source, utc_now
 
 BASE_DIR = Path(__file__).parent.parent
@@ -20,6 +20,7 @@ app = Flask(__name__, template_folder=str(REPORTS_DIR), static_folder=str(STATIC
 
 # Track background scheduler process pid
 _scheduler_pid = None
+_refreshing_slugs: set = set()
 
 
 def _run_scheduler_bg():
@@ -226,18 +227,51 @@ def api_card_detail(slug: str):
       <img src="/{chart_path}" alt="Price chart for {identity.name or product.title}">
     </section>""" if chart_exists else ""
 
-    source_sections = []
-    for src in product.sources:
-        source_sections.append(f"""
-        <section>
-          <h2>{src.name}</h2>
-          <p><a href="{src.url}" target="_blank">Open source search</a></p>
-          <table>
-            <thead><tr><th>Listing</th><th>Price</th><th>Source</th><th>Match</th><th>Used</th></tr></thead>
-            <tbody><tr><td colspan="5">No comparable listings parsed.</td></tr></tbody>
-          </table>
-        </section>""")
+    # Fetch latest observations from DB for display
+    observations = get_observations_for_slug(slug)
+    obs_by_source: dict[str, list[dict]] = {}
+    for obs in observations:
+        obs_by_source.setdefault(obs["source_name"], []).append(obs)
 
+    # Build source sections from DB observations
+    MY_STORE_MARKER = "(Our store) - "
+    MY_STORE_PATTERNS = ("tokopedia.com/iantechcardstore", "tokopedia.com/iantechstore")
+    source_sections = []
+    if obs_by_source:
+        for src_name, obs_list in obs_by_source.items():
+            # Sort by price descending
+            sorted_obs = sorted(obs_list, key=lambda o: o["price_idr"], reverse=True)
+            rows = []
+            for obs in sorted_obs[:10]:
+                legit = "yes" if obs["is_legit"] else "filtered"
+                is_own = any(p in obs["url"] for p in MY_STORE_MARKER if p)
+                is_own = any(p in obs["url"] for p in MY_STORE_PATTERNS)
+                title = obs["title"] or src_name
+                if is_own:
+                    title = f'<span style="color:var(--green);font-weight:600;">{MY_STORE_MARKER}{title}</span>'
+                rows.append(
+                    f"""<tr{' style="background:#4ade8018;"' if is_own else ''}>
+                      <td><a href="{obs['url']}" target="_blank">{title}</a></td>
+                      <td>Rp {obs['price_idr']:,}</td>
+                      <td>{obs['source_kind']}</td>
+                      <td>-</td>
+                      <td>{legit}</td>
+                    </tr>"""
+                )
+            source_sections.append(f"""
+            <section>
+              <h2>{src_name}</h2>
+              <table>
+                <thead><tr><th>Listing</th><th>Price</th><th>Source</th><th>Match</th><th>Used</th></tr></thead>
+                <tbody>{''.join(rows)}</tbody>
+              </table>
+            </section>""")
+    else:
+        source_sections.append(
+            """<section>
+              <p style="color:var(--muted);font-size:12px;">No price data yet. Click "Refresh Prices" to search Tokopedia.</p>
+            </section>"""
+        )
     sources_html = "".join(source_sections)
 
     tokopedia_url = product.tokopedia_url or next(
@@ -248,7 +282,9 @@ def api_card_detail(slug: str):
     html = f"""
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:var(--sp-2)">
       <button class="btn" onclick="window.open('{tokopedia_url}', '_blank')">Check Tokopedia Price</button>
-      <button class="btn" onclick="refreshCard('{slug}')">Refresh Prices</button>
+      <button id="refresh-btn" class="btn" onclick="refreshCard('{slug}')">
+        <span id="refresh-btn-text">Refresh Prices</span>
+      </button>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:var(--sp-2);align-items:center;">
       <label style="font-size:11px;color:var(--muted);white-space:nowrap;">Search Keyword:</label>
@@ -357,30 +393,73 @@ def update_search_term(slug: str):
     return jsonify({"ok": True}), 200
 
 
+_refreshing_slugs = set()
+
+def _run_refresh_bg(slug: str):
+    """Background job that crawls tokopedia from search keyword and saves results."""
+    global _refreshing_slugs
+    try:
+        from .config import load_config
+        from .models import Product, Source
+        from .scrapers import MarketplaceScraper
+
+        _, products = load_config(CONFIG_PATH)
+        product = next((p for p in products if p.slug == slug), None)
+        if product is None:
+            return
+
+        # Build tokopedia source from search keyword
+        keyword = product.search_terms[0] if product.search_terms else slug.replace("-", " ")
+        tokopedia_url = f"https://www.tokopedia.com/find/{keyword.replace(' ', '-')}"
+        tokopedia_source = Source(
+            name="tokopedia competitors",
+            kind="tokopedia_find",
+            url=tokopedia_url,
+        )
+
+        settings = {"tokopedia_scam_floor_ratio": 0, "tokopedia_min_legit_results": 0}
+        scraper = MarketplaceScraper(settings)
+        run_at = utc_now()
+        source_results = [scraper.scrape(tokopedia_source)]
+
+        # Build a minimal product with just the tokopedia source for analysis
+        analysis_product = Product(
+            title=product.title,
+            own_price_idr=product.own_price_idr,
+            tokopedia_url=product.tokopedia_url,
+            search_terms=product.search_terms,
+            sources=[tokopedia_source],
+        )
+        from .ai import attach_ai_summaries
+        from .analyze import analyze_product
+        from .history import save_run
+        from .reports import write_reports
+
+        analyses = [analyze_product(analysis_product, source_results, run_at, settings)]
+        analyses, ai_warnings = attach_ai_summaries(analyses)
+        save_run(analyses)
+        write_reports(analyses, analyses[0].run_at.isoformat())
+    finally:
+        _refreshing_slugs.discard(slug)
+
+
 @app.route("/run/<slug>", methods=["POST"])
 def run_single_card(slug: str):
-    """Re-run price check for a single card."""
-    from .config import load_config
-    from .analyze import analyze_product
-    from .ai import attach_ai_summaries
-    from .history import save_run
-    from .reports import write_reports
-    from .scrapers import MarketplaceScraper
+    global _refreshing_slugs
+    if slug in _refreshing_slugs:
+        return jsonify({"ok": False, "error": "Already refreshing"}), 409
+    _refreshing_slugs.add(slug)
+    thread = threading.Thread(target=_run_refresh_bg, args=(slug,), daemon=True)
+    thread.start()
+    return jsonify({"ok": True, "message": "Refresh started"}), 202
 
-    _, products = load_config(CONFIG_PATH)
-    product = next((p for p in products if p.slug == slug), None)
-    if product is None:
-        return jsonify({"ok": False, "error": "Card not found"}), 404
 
-    settings = {}
-    scraper = MarketplaceScraper(settings)
-    run_at = utc_now()
-    source_results = [scraper.scrape(source) for source in product.sources]
-    analyses = [analyze_product(product, source_results, run_at, settings)]
-    analyses, ai_warnings = attach_ai_summaries(analyses)
-    save_run(analyses)
-    write_reports(analyses, analyses[0].run_at.isoformat())
-    return jsonify({"ok": True, "title": product.title})
+@app.route("/run/<slug>/status")
+def run_single_card_status(slug: str):
+    global _refreshing_slugs
+    if slug in _refreshing_slugs:
+        return jsonify({"state": "running"}), 200
+    return jsonify({"state": "done"}), 200
 
 
 @app.route("/run", methods=["POST"])
