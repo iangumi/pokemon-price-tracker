@@ -1,0 +1,34 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+data/*.sqlite3
+data/*.log
+.env
+
+# Generated reports — run output, should never be committed
+reports/latest.csv
+reports/latest.md
+reports/dashboard.html
+reports/opportunities.html
+reports/cards/
+reports/charts/
+
+# Generated static assets
+pokemon_price_scheduler/static/*.min.js
+pokemon_price_scheduler/static/*.min.css
+
+# Local config overrides — hand-edited per user
+config/products.json
+
+# Agent / editor config — user-specific
+.agents/
+.claude/
+.cursorrules
+skills-lock.json
+
+# Playwright test artifacts
+.playwright-cli/
+
+# macOS
+.DS_Store
