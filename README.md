@@ -111,3 +111,75 @@ The final analysis also ignores parsed prices that are implausibly far from your
 
 - `comparable_min_ratio_to_own`
 - `comparable_max_ratio_to_own`
+
+## Architecture
+
+```
+pokemon_price_scheduler/
+├── domain/                    # Pure business logic — no I/O, fully testable
+│   ├── models.py             # Product, Source, PriceObservation, ProductAnalysis, alert_label()
+│   ├── analysis.py           # analyze_product(), score_observations(), relevance_score()
+│   ├── card_parser.py        # parse_card_identity(), CardIdentity
+│   └── text.py               # clean_text() utility
+│
+├── infrastructure/            # External I/O concerns
+│   ├── http.py               # HTTP fetching with gzip/retry
+│   ├── parsing.py            # Price extraction, JSON walking, outlier rejection
+│   ├── scrapers.py           # MarketplaceScraper + per-marketplace extractors
+│   ├── history.py            # SQLite persistence layer
+│   ├── ai.py                 # MiniMax LLM client
+│   └── reports.py            # Composable ReportEngine (see below)
+│
+├── templates/                 # Jinja2 HTML templates
+│   ├── base.html             # Shared shell (sidebar, topbar, CSS design tokens, JS)
+│   ├── dashboard.html
+│   ├── card_detail.html
+│   └── opportunities.html
+│
+├── models.py                  # Backward-compat shim → re-exports domain/
+├── parsing.py                 # Backward-compat shim → re-exports infrastructure/
+├── http.py                    # Backward-compat shim → re-exports infrastructure/
+├── scrapers.py                # Backward-compat shim → re-exports infrastructure/
+├── history.py                 # Backward-compat shim → re-exports infrastructure/
+├── ai.py                      # Backward-compat shim → re-exports infrastructure/
+├── reports.py                 # Backward-compat shim → re-exports infrastructure/
+├── analyze.py                 # Backward-compat shim → re-exports domain/
+├── card_parser.py             # Backward-compat shim → re-exports domain/
+└── web.py                     # Flask SPA + HTMX-style API endpoints
+```
+
+### Domain Layer (`domain/`)
+
+Pure functions and frozen dataclasses with no imports to any infrastructure code. The `domain/models.py` types (`Product`, `Source`, `PriceObservation`, `SourceResult`, `ProductAnalysis`) are the central schema of the entire application. All analysis logic lives in `domain/analysis.py` and can be unit-tested without spinning up servers or hitting the network.
+
+### Infrastructure Layer (`infrastructure/`)
+
+Handles all external I/O: HTTP fetching, marketplace scraping, SQLite persistence, and LLM calls. Each module has a single responsibility. No infrastructure code imports from another infrastructure module — `infrastructure/scrapers.py` imports from `infrastructure/http.py` and `infrastructure/parsing.py`, but not from `infrastructure/history.py` or `infrastructure/ai.py`.
+
+### Report Engine (`infrastructure/reports.py`)
+
+Uses a `Report` abstract base class. Concrete implementations are:
+
+| Class | Output |
+|---|---|
+| `MarkdownReport` | `reports/latest.md` |
+| `CSVReport` | `reports/latest.csv` |
+| `SVGSummaryReport` | `reports/charts/*.svg` |
+| `CardDetailReport` | `reports/cards/*.html` |
+| `DashboardReport` | `reports/dashboard.html` |
+| `OpportunitiesReport` | `reports/opportunities.html` |
+
+`ReportEngine` orchestrates them all, but each `Report` can also be instantiated and run independently. To generate only one report type during development:
+
+```python
+from pokemon_price_scheduler.infrastructure.reports import CardDetailReport, ReportEngine
+CardDetailReport().render(analyses, run_id)
+```
+
+### Template-Based Frontend (`templates/`)
+
+Generated HTML uses Jinja2 templates instead of Python string interpolation. `base.html` contains the shared layout, sidebar, CSS design tokens, and client-side JS. `dashboard.html`, `card_detail.html`, and `opportunities.html` extend it via `{% block body %}`. The `templates/renderers.py` functions prepare data dictionaries and call `template.render()`.
+
+### Backward-Compatibility Shims
+
+All root-level modules (`models.py`, `scrapers.py`, `history.py`, etc.) are shims that re-export from the new layered packages. Existing import paths throughout the codebase — in `cli.py`, `web.py`, and the test suite — continue to work without changes.

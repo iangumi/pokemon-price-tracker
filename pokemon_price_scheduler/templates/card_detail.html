@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block body %}
+<section class="metrics">
+  <div><span>Your Price</span><strong>{{ metrics.own_price }}</strong></div>
+  <div><span>Global Avg</span><strong>{{ metrics.global_avg }}</strong></div>
+  <div><span>Delta</span><strong>{{ metrics.delta }}</strong></div>
+  <div><span>Alert</span><strong>{{ metrics.alert }}</strong></div>
+</section>
+
+<section class="identity">
+  <h2>Card Identity</h2>
+  <dl>
+    <dt>Name</dt><dd>{{ identity.name }}</dd>
+    <dt>Set</dt><dd>{{ identity.set_symbol }}</dd>
+    <dt>Card Number</dt><dd>{{ identity.card_number }}</dd>
+    <dt>Rarity</dt><dd>{{ identity.rarity }}</dd>
+    <dt>Language</dt><dd>{{ identity.language }}</dd>
+    <dt>Condition</dt><dd>{{ identity.condition }}</dd>
+  </dl>
+</section>
+
+{% if chart_exists %}
+<section>
+  <h2>Price Change</h2>
+  <img src="{{ chart_path }}" alt="Price chart for {{ identity.name }}">
+</section>
+{% endif %}
+
+{% if ai_summary %}
+<section>
+  <h2>AI Seller Note</h2>
+  <p>{{ ai_summary }}</p>
+</section>
+{% endif %}
+
+{% for section in source_sections %}
+<section>
+  <h2>{{ section.name }}</h2>
+  <p><a href="{{ section.url }}">Open source search</a></p>
+  <table>
+    <thead>
+      <tr>
+        <th>Listing</th>
+        <th>Price</th>
+        <th>Source</th>
+        <th>Match</th>
+        <th>Used</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in section.rows %}
+      <tr>
+        <td><a href="{{ row.url }}">{{ row.title }}</a></td>
+        <td>{{ row.price }}</td>
+        <td>{{ row.source_kind }}</td>
+        <td>{{ row.relevance }}</td>
+        <td>{{ row.legit }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">No comparable listings parsed.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endfor %}
+{% endblock %}

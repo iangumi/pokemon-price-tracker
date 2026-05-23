@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block body %}
+<table>
+  <thead>
+    <tr>
+      <th>Card</th>
+      <th>Set</th>
+      <th>Rarity</th>
+      <th>Language</th>
+      <th>Condition</th>
+      <th>Your Price</th>
+      <th>Global Avg</th>
+      <th>Delta</th>
+      <th>Alert</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr class="alert-{{ row.alert_level }}">
+      <td><a href="cards/{{ row.slug }}.html">{{ row.name }}</a></td>
+      <td>{{ row.set_symbol }}</td>
+      <td>{{ row.rarity }}</td>
+      <td>{{ row.language }}</td>
+      <td>{{ row.condition }}</td>
+      <td>{{ row.own_price }}</td>
+      <td>{{ row.global_avg }}</td>
+      <td>{{ row.delta }}</td>
+      <td>{{ row.alert_label }}</td>
+    </tr>
+    {% else %}
+    <tr>
+      <td colspan="9">No data yet. Run the scheduler to fetch prices.</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

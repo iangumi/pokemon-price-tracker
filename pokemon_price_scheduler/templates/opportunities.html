@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block body %}
+<table>
+  <thead>
+    <tr>
+      <th>Card</th>
+      <th>Set</th>
+      <th>Rarity</th>
+      <th>Global Avg</th>
+      <th>Global Items</th>
+      <th>Local Items</th>
+      <th>Score</th>
+      <th>Note</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td><a href="cards/{{ row.slug }}.html">{{ row.name }}</a></td>
+      <td>{{ row.set_symbol }}</td>
+      <td>{{ row.rarity }}</td>
+      <td>{{ row.global_avg }}</td>
+      <td>{{ row.global_count }}</td>
+      <td>{{ row.local_count }}</td>
+      <td>{{ row.score }}</td>
+      <td>Review as potential import if global listings are liquid and local listings are thin.</td>
+    </tr>
+    {% else %}
+    <tr>
+      <td colspan="8">No opportunity candidates yet.</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

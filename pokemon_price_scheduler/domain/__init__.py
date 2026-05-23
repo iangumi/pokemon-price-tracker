@@ -1,6 +1,6 @@
-"""Backward-compatibility shim — re-exports from the domain layer."""
+"""Domain layer — pure business logic, no I/O dependencies."""
 
-from .domain.models import (
+from .models import (
     Product,
     Source,
     PriceObservation,
@@ -9,8 +9,8 @@ from .domain.models import (
     alert_label,
     utc_now,
 )
-from .domain.analysis import analyze_product, score_observations, relevance_score
-from .domain.card_parser import CardIdentity, parse_card_identity
+from .analysis import analyze_product, score_observations, relevance_score
+from .card_parser import CardIdentity, parse_card_identity
 
 __all__ = [
     "Product",
