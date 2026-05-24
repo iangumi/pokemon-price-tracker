@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Cards</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ── Design Tokens ─────────────────────────────── */
+    :root {
+      --bg:        #1a1a1e;
+      --surface:   #242428;
+      --surface-2: #2e2e34;
+      --border:    #3a3a42;
+      --text:      #e8e8ed;
+      --muted:     #8b8b96;
+      --accent:    #818cf8;
+      --accent-h:  #a5b4fc;
+      --green:     #4ade80;
+      --amber:     #fbbf24;
+      --red:       #f87171;
+      --font-display: 'Outfit', sans-serif;
+      --font-body:    'Inter', sans-serif;
+      --sp-1: 8px;
+      --sp-2: 16px;
+      --sp-3: 24px;
+      --sp-4: 32px;
+      --sp-5: 40px;
+      --sp-6: 48px;
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --motion-fast: 120ms ease;
+      --sidebar-w: 220px;
+    }
+
+    /* ── Reset & Base ─────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: var(--font-body);
+      color: var(--text);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      display: flex;
+      flex-direction: column;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-h); }
+    a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+    /* ── Scrollbar ─────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--surface); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+    /* ── Sidebar ─────────────────────────────────────── */
+    .sidebar {
+      width: var(--sidebar-w);
+      min-width: var(--sidebar-w);
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      position: sticky;
+      top: 0;
+      overflow-y: auto;
+    }
+    .sidebar-brand {
+      padding: var(--sp-3) var(--sp-3);
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-brand h1 {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      margin: 0;
+      letter-spacing: 0.02em;
+    }
+    .sidebar-brand span {
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .sidebar-section-label {
+      padding: var(--sp-3) var(--sp-3) var(--sp-1);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .sidebar nav {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 0 var(--sp-2) var(--sp-2);
+    }
+    .sidebar nav a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+      transition: all var(--motion-fast);
+    }
+    .sidebar nav a:hover {
+      color: var(--text);
+      background: var(--surface-2);
+    }
+    .sidebar nav a.active {
+      color: var(--accent);
+      background: #818cf812;
+    }
+    .sidebar nav a .nav-icon {
+      font-size: 16px;
+      width: 20px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .sidebar .spacer { flex: 1; }
+    .sidebar-footer {
+      padding: var(--sp-2) var(--sp-3);
+      border-top: 1px solid var(--border);
+    }
+    .sidebar-footer .btn {
+      width: 100%;
+      text-align: center;
+    }
+
+    /* ── Layout ─────────────────────────────────────── */
+    .app {
+      display: flex;
+      flex: 1;
+      min-height: 100vh;
+    }
+    .content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .topbar {
+      padding: var(--sp-2) var(--sp-4);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+    }
+    .topbar h1 {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      margin: 0;
+      letter-spacing: -0.01em;
+      flex: 1;
+    }
+    .topbar-meta {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-1);
+    }
+    .main { padding: var(--sp-4); flex: 1; }
+
+    /* ── Buttons ───────────────────────────────────── */
+    .btn {
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--bg);
+      background: var(--accent);
+      border: none;
+      padding: 7px 14px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background var(--motion-fast), transform var(--motion-fast);
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--accent-h); }
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; transform: none; }
+    .btn.running { background: var(--amber); }
+
+    /* ── Cards Grid ───────────────────────────────── */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: var(--sp-2);
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--sp-2) var(--sp-3);
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-1);
+      text-decoration: none;
+      color: var(--text);
+      transition: border-color var(--motion-fast), background var(--motion-fast);
+    }
+    .card:hover { border-color: var(--accent); background: var(--surface-2); }
+    .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-1); }
+    .card-title {
+      font-family: var(--font-display);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.4;
+      letter-spacing: 0.01em;
+    }
+    .alert-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 10px;
+      font-weight: 600;
+      font-family: var(--font-display);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .alert-badge.red   { background: #f8717115; color: var(--red); border: 1px solid var(--red); }
+    .alert-badge.amber { background: #fbbf2415; color: var(--amber); border: 1px solid var(--amber); }
+    .card-lang {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    .card-prices { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-1); margin-top: var(--sp-1); }
+    .price-box {
+      background: var(--surface-2);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+    }
+    .price-box span {
+      display: block;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .price-box strong {
+      display: block;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      font-family: var(--font-display);
+      letter-spacing: -0.01em;
+    }
+    .trend {
+      font-size: 11px;
+      font-weight: 600;
+      margin-top: 4px;
+      font-family: var(--font-display);
+    }
+    .trend.up      { color: var(--green); }
+    .trend.down    { color: var(--red); }
+    .trend.flat, .trend.neutral { color: var(--muted); }
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <h1>Pokemon Price</h1>
+      <span>Tracker</span>
+    </div>
+    <div class="sidebar-section-label">Navigation</div>
+    <nav>
+      <a href="/">Dashboard</a>
+      <a href="/cards" class="active">My Cards</a>
+      <a href="latest.md">Reports</a>
+      <a href="opportunities.html">Opportunities</a>
+    </nav>
+    <div class="spacer"></div>
+    <div class="sidebar-footer">
+      <button id="run-btn" class="btn" onclick="runScheduler()">Run Scheduler</button>
+    </div>
+  </aside>
+  <div class="content">
+    <div class="topbar">
+      <h1>My Cards</h1>
+      <div class="topbar-meta">Click any card to see full details and price history.</div>
+    </div>
+    <main class="main">
+      <div class="cards-grid">
+        {% for p in products %}
+        <a href="/cards/{{ p.slug }}.html" class="card">
+          <div class="card-top">
+            <div class="card-title">{{ p.title }}</div>
+            {% if p.alert_level and p.alert_level != 'none' %}
+            <span class="alert-badge {{ p.alert_level }}">{{ p.alert_level }}</span>
+            {% endif %}
+          </div>
+          <div class="card-lang">{{ p.language }}</div>
+          <div class="card-prices">
+            <div class="price-box">
+              <span>Your Price</span>
+              <strong>Rp {{ "{:,}".format(p.own_price_idr).replace(",", ".") }}</strong>
+              {% if p.own_trend_percent is not none %}
+                <div class="trend {{ 'up' if p.own_trend_percent > 0 else 'down' if p.own_trend_percent < 0 else 'flat' }}">{{ '+' if p.own_trend_percent > 0 else '' }}{{ p.own_trend_percent }}%</div>
+              {% else %}
+                <div class="trend neutral">—</div>
+              {% endif %}
+            </div>
+            <div class="price-box">
+              <span>Market Avg</span>
+              <strong>{{ 'Rp {:,.0f}'.format(p.global_average_idr).replace(',', '.') if p.global_average_idr else '—' }}</strong>
+              {% if p.market_trend_percent is not none %}
+                <div class="trend {{ 'up' if p.market_trend_percent > 0 else 'down' if p.market_trend_percent < 0 else 'flat' }}">{{ '+' if p.market_trend_percent > 0 else '' }}{{ p.market_trend_percent }}%</div>
+              {% else %}
+                <div class="trend neutral">—</div>
+              {% endif %}
+            </div>
+          </div>
+        </a>
+        {% endfor %}
+      </div>
+    </main>
+  </div>
+</div>
+<script>
+async function runScheduler() {
+  const btn = document.getElementById("run-btn");
+  if (!btn) return;
+  btn.disabled = true;
+  btn.classList.add("running");
+  btn.textContent = "Running...";
+  try {
+    const res = await fetch("/run", { method: "POST" });
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = "Done! Refreshing...";
+      location.reload();
+    } else {
+      btn.textContent = "Error: " + (data.error || "unknown");
+      btn.disabled = false;
+      btn.classList.remove("running");
+    }
+  } catch(e) {
+    btn.textContent = "Failed: " + e.message;
+    btn.disabled = false;
+    btn.classList.remove("running");
+  }
+}
+</script>
+</body>
+</html>

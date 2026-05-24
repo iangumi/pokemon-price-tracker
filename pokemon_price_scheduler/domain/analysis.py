@@ -70,9 +70,10 @@ def analyze_product(product: Product, source_results: list[SourceResult], run_at
     recommendation = "No reliable market price found yet. Check manually or improve this product's source URLs."
     if global_average:
         price_delta_pct = round(((product.own_price_idr - global_average) / global_average) * 100, 2)
-        if abs(price_delta_pct) >= alert_threshold:
+        # Alert only fires when your price is ABOVE the market — being underpriced is a positive signal
+        if price_delta_pct >= alert_threshold:
             alert_level = "red"
-        elif abs(price_delta_pct) >= 10:
+        elif price_delta_pct >= 10:
             alert_level = "amber"
 
     if market_median:

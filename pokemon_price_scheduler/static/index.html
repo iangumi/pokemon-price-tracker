@@ -1,0 +1,929 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pokemon Price Tracker</title>
+  <link rel="icon" type="image/avif" href="https://img.pokemondb.net/sprites/scarlet-violet/icon/avif/charizard.avif">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="/htmx.min.js?v=3"></script>
+  <script defer src="/alpine.min.js?v=3"></script>
+  <script src="/jquery.min.js"></script>
+  <script src="/dataTables.min.js"></script>
+  <style>
+    :root {
+      --bg:        #1a1a1e;
+      --surface:   #242428;
+      --surface-2: #2e2e34;
+      --border:    #3a3a42;
+      --text:      #e8e8ed;
+      --muted:     #8b8b96;
+      --accent:    #818cf8;
+      --accent-h:  #a5b4fc;
+      --green:     #4ade80;
+      --amber:     #fbbf24;
+      --red:       #f87171;
+      --font-display: 'Outfit', sans-serif;
+      --font-body:    'Inter', sans-serif;
+      --sp-1: 8px;
+      --sp-2: 16px;
+      --sp-3: 24px;
+      --sp-4: 32px;
+      --sp-5: 40px;
+      --sp-6: 48px;
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --motion-fast: 120ms ease;
+      --sidebar-w: 220px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: var(--font-body);
+      color: var(--text);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      display: flex;
+      min-height: 100vh;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-h); }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--surface); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .sidebar {
+      width: var(--sidebar-w);
+      min-width: var(--sidebar-w);
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      position: sticky;
+      top: 0;
+      overflow-y: auto;
+      flex-shrink: 0;
+    }
+    .sidebar-brand {
+      padding: var(--sp-3) var(--sp-3);
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-brand h1 {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      margin: 0;
+      letter-spacing: 0.02em;
+    }
+    .sidebar-brand span {
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .sidebar-section-label {
+      padding: var(--sp-3) var(--sp-3) var(--sp-1);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .sidebar nav {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 0 var(--sp-2) var(--sp-2);
+    }
+    .sidebar nav a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+      transition: all var(--motion-fast);
+      cursor: pointer;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+    }
+    .sidebar nav a:hover {
+      color: var(--text);
+      background: var(--surface-2);
+    }
+    .sidebar nav a.active {
+      color: var(--accent);
+      background: #818cf812;
+    }
+    .sidebar .spacer { flex: 1; }
+    .sidebar-footer {
+      padding: var(--sp-2) var(--sp-3);
+      border-top: 1px solid var(--border);
+    }
+    .sidebar-footer .btn {
+      width: 100%;
+      text-align: center;
+    }
+    .app {
+      display: flex;
+      flex: 1;
+      min-height: 100vh;
+    }
+    .content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .topbar {
+      padding: var(--sp-2) var(--sp-4);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+    }
+    .topbar h1 {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      margin: 0;
+      letter-spacing: -0.01em;
+      flex: 1;
+    }
+    .topbar-meta {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .main { padding: var(--sp-4); flex: 1; overflow-y: auto; }
+    .btn {
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--bg);
+      background: var(--accent);
+      border: none;
+      padding: 7px 14px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background var(--motion-fast), transform var(--motion-fast);
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--accent-h); }
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; transform: none; }
+    .btn.running { background: var(--amber); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    thead { background: var(--surface-2); }
+    th {
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 10px var(--sp-2);
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td {
+      padding: 10px var(--sp-2);
+      font-size: 13px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface-2); }
+    tr.alert-red td { background: #f8717115; }
+    tr.alert-amber td { background: #fbbf2415; }
+    .status-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .status-dot.ok     { background: var(--green); }
+    .status-dot.warn   { background: var(--amber); }
+    .status-dot.danger { background: var(--red); }
+    .status-dot.none   { background: var(--muted); }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: var(--sp-2);
+      margin-bottom: var(--sp-3);
+    }
+    .metrics > div {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--sp-2) var(--sp-3);
+    }
+    .metrics span {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .metrics strong {
+      display: block;
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+    dl {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 0 var(--sp-2);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--sp-2) var(--sp-3);
+    }
+    dt {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    dd {
+      margin: 0;
+      font-size: 13px;
+      color: var(--text);
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    dl > :last-child { border-bottom: none; }
+    img {
+      max-width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }
+    h2 {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--text);
+      margin: var(--sp-4) 0 var(--sp-2);
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: var(--sp-2);
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--sp-2) var(--sp-3);
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-1);
+      text-decoration: none;
+      color: var(--text);
+      transition: border-color var(--motion-fast), background var(--motion-fast);
+    }
+    .card:hover { border-color: var(--accent); background: var(--surface-2); }
+    .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-1); }
+    .card-title {
+      font-family: var(--font-display);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.4;
+      letter-spacing: 0.01em;
+    }
+    .alert-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 10px;
+      font-weight: 600;
+      font-family: var(--font-display);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .alert-badge.red   { background: #f8717115; color: var(--red); border: 1px solid var(--red); }
+    .alert-badge.amber { background: #fbbf2415; color: var(--amber); border: 1px solid var(--amber); }
+    .card-lang {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    .card-prices { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-1); margin-top: var(--sp-1); }
+    .price-box {
+      background: var(--surface-2);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+    }
+    .price-box span {
+      display: block;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .price-box strong {
+      display: block;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      font-family: var(--font-display);
+      letter-spacing: -0.01em;
+    }
+    .trend {
+      font-size: 11px;
+      font-weight: 600;
+      margin-top: 4px;
+      font-family: var(--font-display);
+    }
+    .trend.up      { color: var(--green); }
+    .trend.down    { color: var(--red); }
+    .trend.flat, .trend.neutral { color: var(--muted); }
+    .spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid var(--bg);
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .htmx-indicator {
+      opacity: 0;
+      transition: opacity 200ms ease;
+    }
+    .htmx-request .htmx-indicator {
+      opacity: 1;
+    }
+    .htmx-request.htmx-indicator {
+      opacity: 1;
+    }
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--sp-3);
+      width: 400px;
+      max-width: 90vw;
+    }
+    .modal h2 {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 600;
+      margin: 0 0 var(--sp-2);
+      padding-bottom: var(--sp-1);
+      border-bottom: 1px solid var(--border);
+    }
+    .modal label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .modal input {
+      width: 100%;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 13px;
+      margin-bottom: var(--sp-2);
+    }
+    .modal input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .modal-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 10px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 500;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 200ms ease, transform 200ms ease;
+      pointer-events: none;
+      z-index: 2000;
+    }
+    .toast.visible { opacity: 1; transform: translateY(0); }
+    .toast.ok     { border-color: var(--green); color: var(--green); }
+    .toast.error  { border-color: var(--red);   color: var(--red);   }
+
+    /* DataTables dark theme overrides */
+    #content .dataTables_wrapper { overflow-x: auto; }
+    #content .dataTables_filter { margin-bottom: var(--sp-2); }
+    #content .dataTables_filter input {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      padding: 6px 10px;
+      font-size: 13px;
+      outline: none;
+    }
+    #content .dataTables_filter input:focus { border-color: var(--accent); }
+    #content .dataTables_length { margin-bottom: var(--sp-2); }
+    #content .dataTables_length select {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      padding: 4px 8px;
+      font-size: 12px;
+      outline: none;
+    }
+    #content table.dataTable {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      border-collapse: separate;
+      overflow: hidden;
+    }
+    #content table.dataTable thead th {
+      background: var(--surface-2);
+      color: var(--muted);
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 10px var(--sp-2);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    #content table.dataTable tbody td {
+      padding: 10px var(--sp-2);
+      font-size: 13px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      vertical-align: middle;
+    }
+    #content table.dataTable tbody tr:last-child td { border-bottom: none; }
+    #content table.dataTable tbody tr:hover td { background: var(--surface-2); }
+    #content table.dataTable tbody tr.alert-red td { background: #f8717115; }
+    #content table.dataTable tbody tr.alert-amber td { background: #fbbf2415; }
+    #content .dataTables_info {
+      color: var(--muted);
+      font-size: 12px;
+      padding: var(--sp-1) 0;
+    }
+    #content .dataTables_paginate { padding: var(--sp-1) 0; }
+    #content .paginate_button {
+      display: inline-block;
+      padding: 5px 10px;
+      margin-right: 4px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      color: var(--text) !important;
+      cursor: pointer;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      transition: all var(--motion-fast);
+    }
+    #content .paginate_button:hover {
+      background: var(--surface);
+      border-color: var(--accent);
+      color: var(--accent) !important;
+    }
+    #content .paginate_button.current {
+      background: var(--accent) !important;
+      border-color: var(--accent) !important;
+      color: var(--bg) !important;
+      font-weight: 600;
+    }
+    #content .paginate_button.disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    #content .sorting { cursor: pointer; }
+  </style>
+</head>
+<body x-data="app()">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <h1>Pokemon Price</h1>
+      <span>Tracker</span>
+    </div>
+    <div class="sidebar-section-label">Navigation</div>
+    <nav>
+      <a href="/" :class="{ 'active': currentPage === 'dash' }" @click="navigateTo('/')">
+        <span>◈</span> Dashboard
+      </a>
+      <a href="/cards" :class="{ 'active': currentPage === 'cards' }" @click="navigateTo('/cards')">
+        <span>◫</span> My Cards
+      </a>
+      <a href="latest.md" :class="{ 'active': currentPage === 'reports' }" @click="setPage('reports')">
+        <span>◻</span> Reports
+      </a>
+      <a href="/opportunities" :class="{ 'active': currentPage === 'ops' }" @click="navigateTo('/opportunities')">
+        <span>◇</span> Opportunities
+      </a>
+      <a href="/soldcards" :class="{ 'active': currentPage === 'sold' }" @click="navigateTo('/soldcards')">
+        <span>◻</span> Sold Cards
+      </a>
+    </nav>
+    <div class="spacer"></div>
+    <div class="sidebar-footer">
+      <button id="run-btn" class="btn" :class="{ 'running': schedulerState === 'running' }"
+              @click="runScheduler()" :disabled="schedulerState === 'running'">
+        <template x-if="schedulerState === 'running'">
+          <span class="spinner"></span>
+        </template>
+        <template x-if="schedulerState !== 'running'">
+          <span>Run Scheduler</span>
+        </template>
+      </button>
+      <p x-show="schedulerState === 'done'" style="font-size:11px;color:var(--green);margin:4px 0 0;text-align:center;">Done!</p>
+      <p x-show="schedulerState === 'error'" style="font-size:11px;color:var(--red);margin:4px 0 0;text-align:center;" x-text="errorMessage"></p>
+    </div>
+  </aside>
+
+  <!-- Main content area -->
+  <div class="content">
+    <!-- Topbar -->
+    <div class="topbar">
+      <h1 x-text="pageTitle">Dashboard</h1>
+      <div class="topbar-meta" x-text="pageMeta"></div>
+    </div>
+
+    <!-- Dynamic content -->
+    <main class="main" id="content" x-html="pageContent">
+    </main>
+  </div>
+
+  <script>
+    function app() {
+      return {
+        currentPage: 'dash',
+        pageTitle: 'Dashboard',
+        pageMeta: '',
+        pageContent: '',
+        schedulerState: 'idle',
+        errorMessage: '',
+
+        setPage(page) {
+          this.currentPage = page;
+          if (page === 'dash') {
+            this.pageTitle = 'Dashboard';
+            this.pageMeta = 'Red means your Tokopedia price is at least the configured alert threshold away from the global average.';
+          } else if (page === 'cards') {
+            this.pageTitle = 'My Cards';
+            this.pageMeta = 'Click any card to see full details and price history.';
+          } else if (page === 'ops') {
+            this.pageTitle = 'Buying Opportunities';
+            this.pageMeta = 'First-pass candidates from high global evidence plus low Tokopedia local supply.';
+          } else if (page === 'reports') {
+            this.pageTitle = 'Reports';
+            this.pageMeta = 'Markdown report from last run.';
+          } else if (page === 'sold') {
+            this.pageTitle = 'Sold Cards';
+            this.pageMeta = 'Cards that have been sold or delisted from Tokopedia.';
+          }
+        },
+
+        navigateTo(path) {
+          var url = '/api/dashboard';
+          if (path === '/cards') {
+            this.setPage('cards');
+            url = '/api/cards';
+          } else if (path === '/opportunities') {
+            this.setPage('ops');
+            url = '/api/opportunities';
+          } else if (path === '/soldcards') {
+            this.setPage('sold');
+            url = '/api/soldcards';
+          } else if (path.startsWith('/cards/')) {
+            this.currentPage = 'card-detail';
+            this.pageTitle = 'Card Detail';
+            this.pageMeta = 'Loading...';
+            url = '/api/cards/' + path.replace('/cards/', '');
+          } else {
+            this.setPage('dash');
+          }
+
+          var self = this;
+          this.pageContent = '<p id="loading-msg">LOADING: ' + url + '</p>';
+          console.log('Set loading:', url);
+          fetch(url)
+            .then(function(r) { return r.text(); })
+            .then(function(html) {
+              console.log('Fetched content length:', html.length);
+              self.pageContent = html;
+              if (self.currentPage === 'card-detail') {
+                self.pageMeta = 'Click any card to see full details and price history.';
+              }
+              if (path === '/' || path === '/api/dashboard') {
+                requestAnimationFrame(function() {
+                  if (window._dt) { window._dt.destroy(); window._dt = null; }
+                  var tbl = document.querySelector('#content table');
+                  if (tbl) {
+                    window._dt = new DataTable(tbl, {
+                      dom: 'lfrtip',
+                      pageLength: 10,
+                      order: [[7, 'desc']],
+                      columnDefs: [
+                        { targets: [5, 6], type: 'num' }
+                      ],
+                      createdRow: function(row, data, dataIndex) {
+                        var alert = row.cells[8].textContent.trim();
+                        if (alert === 'Price too high') {
+                          row.cells[8].innerHTML = '<span class="alert-badge red">Price too high</span>';
+                        } else if (alert === 'Price a bit high') {
+                          row.cells[8].innerHTML = '<span class="alert-badge amber">Price a bit high</span>';
+                        } else {
+                          row.cells[8].innerHTML = '-';
+                        }
+                      }
+                    });
+                  }
+                });
+              }
+            })
+            .catch(function(e) {
+              console.error('Fetch error:', e);
+              self.pageContent = '<p>Error loading: ' + url + '</p>';
+            });
+        },
+
+        init() {
+          window.__INIT_CALLED = true;
+          var path = window.location.pathname;
+          this.navigateTo(path);
+        },
+
+        async runScheduler() {
+          if (this.schedulerState === 'running') return;
+          this.schedulerState = 'running';
+          this.errorMessage = '';
+
+          try {
+            var res = await fetch('/run', { method: 'POST' });
+            var data = await res.json();
+            if (!data.ok) {
+              this.schedulerState = 'error';
+              this.errorMessage = data.error || 'Unknown error';
+              return;
+            }
+
+            var evtSource = new EventSource('/run/status');
+            var self = this;
+            evtSource.onmessage = function(event) {
+              var status = event.data;
+              if (status === 'done') {
+                evtSource.close();
+                self.schedulerState = 'done';
+                self.navigateTo(window.location.pathname);
+              } else if (status === 'error') {
+                evtSource.close();
+                self.schedulerState = 'error';
+                self.errorMessage = 'Scheduler failed';
+              }
+            };
+            evtSource.onerror = function() {
+              evtSource.close();
+              self.schedulerState = 'idle';
+            };
+          } catch(e) {
+            this.schedulerState = 'error';
+            this.errorMessage = e.message;
+          }
+        },
+
+        refreshCard(slug) {
+          if (window._refreshing) return;
+          window._refreshing = slug;
+          var btn = document.getElementById('refresh-btn');
+          var btnText = document.getElementById('refresh-btn-text');
+          if (btn) btn.disabled = true;
+          if (btn) btn.classList.add('running');
+          if (btnText) btnText.innerHTML = '<span class="spinner"></span> Refreshing…';
+          fetch('/run/' + slug, { method: 'POST' })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+              if (!data.ok) {
+                window._refreshing = null;
+                if (btn) btn.disabled = false;
+                if (btn) btn.classList.remove('running');
+                if (btnText) btnText.textContent = 'Refresh Competitor Prices';
+                showToast(data.error || 'Refresh failed', 'error');
+                return;
+              }
+              var pollInterval = setInterval(function() {
+                fetch('/run/' + slug + '/status')
+                  .then(function(r) { return r.json(); })
+                  .then(function(status) {
+                    if (status.state === 'done') {
+                      clearInterval(pollInterval);
+                      window._refreshing = null;
+                      showToast('Prices refreshed', 'ok');
+                      window.location.href = '/cards/' + slug;
+                    } else if (status.state === 'error') {
+                      clearInterval(pollInterval);
+                      window._refreshing = null;
+                      if (btn) btn.disabled = false;
+                      if (btn) btn.classList.remove('running');
+                      if (btnText) btnText.textText = 'Refresh Competitor Prices';
+                      showToast('Refresh failed', 'error');
+                    }
+                  })
+                  .catch(function() {
+                    clearInterval(pollInterval);
+                    window._refreshing = null;
+                    if (btn) btn.disabled = false;
+                    if (btn) btn.classList.remove('running');
+                    if (btnText) btnText.textContent = 'Refresh Competitor Prices';
+                    showToast('Refresh failed', 'error');
+                  });
+              }, 1000);
+            })
+            .catch(function() {
+              window._refreshing = null;
+              if (btn) btn.disabled = false;
+              if (btn) btn.classList.remove('running');
+              if (btnText) btnText.textContent = 'Refresh Competitor Prices';
+              showToast('Refresh failed', 'error');
+            });
+        }
+      };
+    }
+
+    window._app = app();
+    window.refreshCard = window._app.refreshCard;
+
+    function openAddCardModal() {
+      document.getElementById('add-card-modal').classList.add('open');
+    }
+
+    function closeAddCardModal() {
+      document.getElementById('add-card-modal').classList.remove('open');
+    }
+
+    async function submitAddCard() {
+      var tokopediaUrl = document.getElementById('new-card-url').value.trim();
+      var searchKeyword = document.getElementById('new-card-keyword').value.trim();
+      if (!tokopediaUrl) {
+        showToast('Tokopedia URL is required', 'error');
+        return;
+      }
+      var res = await fetch('/api/cards/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tokopedia_url: tokopediaUrl, search_keyword: searchKeyword })
+      });
+      var data = await res.json();
+      if (!data.ok) {
+        showToast(data.error || 'Failed to add card', 'error');
+        return;
+      }
+      closeAddCardModal();
+      window.location.href = '/cards/' + data.slug;
+    }
+
+    async function updateSearchTerm(slug) {
+      var input = document.getElementById('search-term-input');
+      if (!input) return;
+      var searchTerm = input.value.trim();
+      var res = await fetch('/api/cards/' + slug + '/search-term', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ search_term: searchTerm })
+      });
+      showToast(res.ok ? 'Search term updated' : 'Failed to update search term', res.ok ? 'ok' : 'error');
+    }
+
+    async function syncNewProducts() {
+      var res = await fetch('/api/products/sync', { method: 'POST' });
+      var data = await res.json();
+      if (data.ok && data.added_count > 0) {
+        showToast('Added ' + data.added_count + ' new product(s)', 'ok');
+        window._app.navigateTo('/cards');
+      } else if (data.ok && data.added_count === 0) {
+        showToast('No new products found on store page', 'ok');
+      } else {
+        showToast(data.error || 'Sync failed', 'error');
+      }
+    }
+
+    async function revertSold(slug) {
+      var res = await fetch('/api/cards/' + slug + '/revert-sold', { method: 'PUT' });
+      var data = await res.json();
+      if (data.ok) {
+        showToast('Reverted: ' + data.title + ' is active again', 'ok');
+        window._app.navigateTo('/soldcards');
+      } else {
+        showToast(data.error || 'Failed to revert', 'error');
+      }
+    }
+
+    async function updatePrice(slug) {
+      var btn = document.getElementById('update-price-btn');
+      var btnText = document.getElementById('update-price-btn-text');
+      if (btn) btn.disabled = true;
+      if (btnText) btnText.innerHTML = '<span class="spinner"></span> Fetching…';
+      var res = await fetch('/api/cards/' + slug + '/update-price', { method: 'PUT' });
+      var data;
+      try {
+        data = await res.json();
+      } catch {
+        data = { ok: false, error: 'Server error — is Tokopedia reachable?' };
+      }
+      if (btn) btn.disabled = false;
+      if (btnText) btnText.textContent = 'Sync Store Price';
+      if (data.ok) {
+        showToast('Price updated to ' + data.price_display, 'ok');
+        window.location.href = '/cards/' + slug;
+      } else {
+        showToast(data.error || 'Failed to fetch competitor price', 'error');
+      }
+    }
+
+    var _toastTimer;
+    function showToast(message, type) {
+      var el = document.getElementById('toast');
+      el.textContent = message;
+      el.className = 'toast ' + (type || 'ok');
+      el.classList.add('visible');
+      clearTimeout(_toastTimer);
+      _toastTimer = setTimeout(function() { el.classList.remove('visible'); }, 2500);
+    }
+  </script>
+  <div id="toast" class="toast"></div>
+  <div id="add-card-modal" class="modal-overlay" x-data="{}">
+    <div class="modal">
+      <h2>Add New Card</h2>
+      <label>Tokopedia URL</label>
+      <input id="new-card-url" type="url" placeholder="https://www.tokopedia.com/...">
+      <label>Search Keyword</label>
+      <input id="new-card-keyword" type="text" placeholder="Pikachu KFC PROMO PSA 10">
+      <div class="modal-actions">
+        <button class="btn" onclick="closeAddCardModal()">Cancel</button>
+        <button class="btn" onclick="submitAddCard()">Add Card</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

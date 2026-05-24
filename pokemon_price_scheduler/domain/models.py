@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -25,24 +26,31 @@ class Product:
     sold_at: str = ""
     added_at: str = ""
 
+    # Internal cache for lazily-computed properties (frozen dataclass workaround)
+    _card_identity_cache: dict = field(default_factory=dict, repr=False, compare=False)
+    _slug_cache: dict = field(default_factory=dict, repr=False, compare=False)
+
+    @property
+    def card_identity(self) -> CardIdentity:
+        if "identity" not in self._card_identity_cache:
+            self._card_identity_cache["identity"] = parse_card_identity(self.title)
+        return self._card_identity_cache["identity"]
+
     @property
     def slug(self) -> str:
-        identity = self.card_identity
-        parts = [identity.name, identity.rarity, identity.set_symbol,
-                 identity.card_number, identity.condition]
-        slug = "-".join(p.lower().replace(" ", "-") for p in parts if p)
-        import re
-        slug = re.sub(r"[^a-z0-9-]", "", slug)
-        slug = re.sub(r"-+", "-", slug).strip("-")[:90]
-        return slug or "product"
+        if "slug" not in self._slug_cache:
+            identity = self.card_identity
+            parts = [identity.name, identity.rarity, identity.set_symbol,
+                     identity.card_number, identity.condition]
+            s = "-".join(p.lower().replace(" ", "-") for p in parts if p)
+            s = re.sub(r"[^a-z0-9-]", "", s)
+            s = re.sub(r"-+", "-", s).strip("-")[:90]
+            self._slug_cache["slug"] = s or "product"
+        return self._slug_cache["slug"]
 
     @property
     def language(self) -> str:
         return self.card_identity.language
-
-    @property
-    def card_identity(self) -> CardIdentity:
-        return parse_card_identity(self.title)
 
 
 @dataclass(frozen=True)

@@ -21,6 +21,32 @@ from .parsing import (
 
 SNKRDUNK_API = "https://snkrdunk.com/v3/search"
 
+# Pre-compiled regexes — compiled once at module load, reused across all scrape calls
+_SNKRDUNK_SEARCH_RE = re.compile(r"func=all&refId=search")
+_SSR_ITEM_RE = re.compile(
+    r'<div[^>]+data-testid="divFindProduct#[^"]+"[^>]*>.*?'
+    r'<a[^>]+href="(?P<url>[^"]+)"[^>]*>(?P<body>.*?)</a>\s*</div>',
+    re.I | re.S,
+)
+_SSR_TITLE_RE = re.compile(r"<span[^>]*>(?P<title>[^<]{8,260})</span>", re.I | re.S)
+_SSR_PRICE_RE = re.compile(r"Rp\s?[\d.]+", re.I)
+_RAW_PRODUCT_RE = re.compile(
+    r'"name":"(?P<title>(?:\\.|[^"])+)","product_url":"(?P<url>(?:\\.|[^"])+)".{0,1800}?'
+    r'"price":\{"type":"id","generated":true,"id":"(?P<price_id>(?:\\.|[^"])+)"',
+    re.S,
+)
+_STORE_RAW_PRODUCT_RE = re.compile(
+    r'"name":"(?P<title>(?:\\.|[^"])+)","product_url":"(?P<url>(?:\\.|[^"])+)".{0,1800}?'
+    r'"price":\{"type":"id","generated":true,"id":"(?P<price_id>(?:\\.|[^"])+)"',
+    re.S,
+)
+_EBAY_ITEM_RE = re.compile(r'<li[^>]+class="[^"]*s-item[^"]*"[^>]*>(?P<body>.*?)</li>', re.I | re.S)
+_EBAY_TITLE_RE = re.compile(r'<div[^>]+class="[^"]*s-item__title[^"]*"[^>]*>(?P<title>.*?)</div>', re.I | re.S)
+_EBAY_PRICE_RE = re.compile(r'<span[^>]+class="[^"]*s-item__price[^"]*"[^>]*>(?P<price>.*?)</span>', re.I | re.S)
+_EBAY_LINK_RE = re.compile(r'<a[^>]+class="[^"]*s-item__link[^"]*"[^>]+href="(?P<url>[^"]+)"', re.I | re.S)
+_STORE_PRICE_REF_RE = re.compile(r'"text_idr":"(?P<price>Rp[\d.]+)"')
+_STORE_FALLBACK_RE = re.compile(r"(?:Rp\s?[\d.]+(?:\s?(?:rb|ribu|jt|juta))?).{0,400}?([A-Z0-9][^<>]{10,120})", re.I | re.S)
+
 
 def snkrdunk_search_url(keyword: str, page: int = 1) -> str:
     params = (
@@ -177,15 +203,10 @@ class MarketplaceScraper:
 def extract_tokopedia_search_items(source: Source, html_text: str) -> list[PriceObservation]:
     items: list[PriceObservation] = []
     seen: set[tuple[str, int]] = set()
-    ssr_pattern = re.compile(
-        r'<div[^>]+data-testid="divFindProduct#[^"]+"[^>]*>.*?'
-        r'<a[^>]+href="(?P<url>[^"]+)"[^>]*>(?P<body>.*?)</a>\s*</div>',
-        re.I | re.S,
-    )
-    for match in ssr_pattern.finditer(html_text):
+    for match in _SSR_ITEM_RE.finditer(html_text):
         body = match.group("body")
-        title_match = re.search(r"<span[^>]*>(?P<title>[^<]{8,260})</span>", body, re.I | re.S)
-        price_match = re.search(r"Rp\s?[\d.]+", body, re.I)
+        title_match = _SSR_TITLE_RE.search(body)
+        price_match = _SSR_PRICE_RE.search(body)
         if not title_match or not price_match:
             continue
         title = clean_text(title_match.group("title"))
@@ -210,12 +231,7 @@ def extract_tokopedia_search_items(source: Source, html_text: str) -> list[Price
     if items:
         return items
 
-    raw_product_pattern = re.compile(
-        r'"name":"(?P<title>(?:\\.|[^"])+)","product_url":"(?P<url>(?:\\.|[^"])+)".{0,1800}?'
-        r'"price":\{"type":"id","generated":true,"id":"(?P<price_id>(?:\\.|[^"])+)"',
-        re.S,
-    )
-    for match in raw_product_pattern.finditer(html_text):
+    for match in _RAW_PRODUCT_RE.finditer(html_text):
         title = decode_jsonish(match.group("title"))
         url = decode_jsonish(match.group("url"))
         price_id = match.group("price_id")
@@ -245,12 +261,11 @@ def extract_tokopedia_search_items(source: Source, html_text: str) -> list[Price
 def extract_ebay_items(source: Source, html_text: str) -> list[PriceObservation]:
     items: list[PriceObservation] = []
     seen: set[tuple[str, int]] = set()
-    card_pattern = re.compile(r'<li[^>]+class="[^"]*s-item[^"]*"[^>]*>(?P<body>.*?)</li>', re.I | re.S)
-    for match in card_pattern.finditer(html_text):
+    for match in _EBAY_ITEM_RE.finditer(html_text):
         body = match.group("body")
-        title_match = re.search(r'<div[^>]+class="[^"]*s-item__title[^"]*"[^>]*>(?P<title>.*?)</div>', body, re.I | re.S)
-        price_match = re.search(r'<span[^>]+class="[^"]*s-item__price[^"]*"[^>]*>(?P<price>.*?)</span>', body, re.I | re.S)
-        link_match = re.search(r'<a[^>]+class="[^"]*s-item__link[^"]*"[^>]+href="(?P<url>[^"]+)"', body, re.I | re.S)
+        title_match = _EBAY_TITLE_RE.search(body)
+        price_match = _EBAY_PRICE_RE.search(body)
+        link_match = _EBAY_LINK_RE.search(body)
         if not title_match or not price_match:
             continue
         title = clean_text(re.sub(r"<[^>]+>", " ", title_match.group("title")))
@@ -343,17 +358,11 @@ def extract_store_products(html_text: str, min_price_idr: int) -> list[dict[str,
     found: list[dict[str, Any]] = []
     seen: set[tuple[str, int]] = set()
 
-    raw_product_pattern = re.compile(
-        r'"name":"(?P<title>(?:\\.|[^"])+)","product_url":"(?P<url>(?:\\.|[^"])+)".{0,1800}?'
-        r'"price":\{"type":"id","generated":true,"id":"(?P<price_id>(?:\\.|[^"])+)"',
-        re.S,
-    )
-    for match in raw_product_pattern.finditer(html_text):
+    for match in _STORE_RAW_PRODUCT_RE.finditer(html_text):
         title = decode_jsonish(match.group("title"))
         url = decode_jsonish(match.group("url"))
         price_id = match.group("price_id")
-        price_pattern = re.compile(re.escape(price_id) + r'":\{"text_idr":"(?P<price>Rp[\d.]+)"')
-        price_match = price_pattern.search(html_text)
+        price_match = _STORE_PRICE_REF_RE.search(html_text)
         if not price_match:
             continue
         price = parse_price_to_idr(price_match.group("price"))
@@ -414,8 +423,7 @@ def extract_store_products(html_text: str, min_price_idr: int) -> list[dict[str,
     if found:
         return found
 
-    pattern = re.compile(r"(?:Rp\s?[\d.]+(?:\s?(?:rb|ribu|jt|juta))?).{0,400}?([A-Z0-9][^<>]{10,120})", re.I | re.S)
-    for match in pattern.finditer(html_text):
+    for match in _STORE_FALLBACK_RE.finditer(html_text):
         price_text = match.group(0).split("<", 1)[0]
         price = parse_price_to_idr(price_text)
         title = clean_text(match.group(1))
