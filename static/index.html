@@ -182,6 +182,12 @@
     .btn:active { transform: scale(0.98); }
     .btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; transform: none; }
     .btn.running { background: var(--amber); }
+    .page-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: var(--sp-1);
+      margin-bottom: var(--sp-2);
+    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -253,6 +259,54 @@
       font-weight: 700;
       color: var(--text);
       letter-spacing: -0.01em;
+    }
+    .dashboard-kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: var(--sp-2);
+    }
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--sp-3);
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-1);
+      transition: border-color var(--motion-fast);
+    }
+    .kpi-card:hover {
+      border-color: var(--accent);
+    }
+    .kpi-label {
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .kpi-value {
+      font-family: var(--font-display);
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+    .kpi-hint {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .kpi-card--alert {
+      border-color: #f8717140;
+    }
+    .kpi-card--alert:hover {
+      border-color: var(--red);
+    }
+    .kpi-card--alert .kpi-value {
+      color: var(--red);
     }
     dl {
       display: grid;
@@ -629,7 +683,7 @@
           this.currentPage = page;
           if (page === 'dash') {
             this.pageTitle = 'Dashboard';
-            this.pageMeta = 'Red means your Tokopedia price is at least the configured alert threshold away from the global average.';
+            this.pageMeta = 'Portfolio overview across your active Tokopedia listings.';
           } else if (page === 'cards') {
             this.pageTitle = 'My Cards';
             this.pageMeta = 'Click any card to see full details and price history.';
@@ -676,26 +730,30 @@
               if (self.currentPage === 'card-detail') {
                 self.pageMeta = 'Click any card to see full details and price history.';
               }
-              if (path === '/' || path === '/api/dashboard') {
+              if (path === '/cards') {
                 requestAnimationFrame(function() {
-                  if (window._dt) { window._dt.destroy(); window._dt = null; }
-                  var tbl = document.querySelector('#content table');
+                  if (window._dtCards) { window._dtCards.destroy(); window._dtCards = null; }
+                  var tbl = document.querySelector('#cards-table');
                   if (tbl) {
-                    window._dt = new DataTable(tbl, {
+                    window._dtCards = new DataTable(tbl, {
                       dom: 'lfrtip',
                       pageLength: 10,
-                      order: [[7, 'desc']],
+                      order: [[4, 'desc']],
                       columnDefs: [
-                        { targets: [5, 6], type: 'num' }
+                        { targets: [1, 2, 4], type: 'num' }
                       ],
-                      createdRow: function(row, data, dataIndex) {
-                        var alert = row.cells[8].textContent.trim();
+                      createdRow: function(row) {
+                        var alertCell = row.cells[5];
+                        if (!alertCell) return;
+                        var alert = alertCell.getAttribute('data-alert') || alertCell.textContent.trim();
                         if (alert === 'Price too high') {
-                          row.cells[8].innerHTML = '<span class="alert-badge red">Price too high</span>';
+                          row.classList.add('alert-red');
+                          alertCell.innerHTML = '<span class="alert-badge red">Price too high</span>';
                         } else if (alert === 'Price a bit high') {
-                          row.cells[8].innerHTML = '<span class="alert-badge amber">Price a bit high</span>';
+                          row.classList.add('alert-amber');
+                          alertCell.innerHTML = '<span class="alert-badge amber">Price a bit high</span>';
                         } else {
-                          row.cells[8].innerHTML = '-';
+                          alertCell.innerHTML = '-';
                         }
                       }
                     });

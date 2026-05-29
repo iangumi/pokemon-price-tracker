@@ -95,11 +95,57 @@ def sold_cards_page():
 
 @app.route("/api/dashboard")
 def api_dashboard():
-    """Return dashboard table rows as HTML fragment."""
+    """Return dashboard KPI summary cards as HTML fragment."""
+    from .config import load_config
+    _, products = load_config(CONFIG_PATH)
+    active = [p for p in products if p.status != "sold"]
+
+    products_with_data = get_all_products_with_trend()
+    data_by_slug = {p["slug"]: p for p in products_with_data}
+
+    total_listings = len(active)
+    portfolio_value = sum(p.own_price_idr or 0 for p in active)
+    market_value = 0
+    alerts_count = 0
+    for product in active:
+        info = data_by_slug.get(product.slug, {})
+        global_avg = info.get("global_average_idr")
+        if global_avg is not None:
+            market_value += global_avg
+        if info.get("alert_level") == "red":
+            alerts_count += 1
+
+    html = f"""<section class="dashboard-kpis">
+  <div class="kpi-card">
+    <span class="kpi-label">Total Active Listings</span>
+    <strong class="kpi-value">{total_listings:,}</strong>
+    <span class="kpi-hint">Live cards in your store</span>
+  </div>
+  <div class="kpi-card">
+    <span class="kpi-label">Total Active Portfolio Value</span>
+    <strong class="kpi-value">{idr(portfolio_value)}</strong>
+    <span class="kpi-hint">Sum of your Tokopedia prices</span>
+  </div>
+  <div class="kpi-card">
+    <span class="kpi-label">Total Market Value</span>
+    <strong class="kpi-value">{idr(market_value)}</strong>
+    <span class="kpi-hint">Sum of global averages (priced cards)</span>
+  </div>
+  <div class="kpi-card kpi-card--alert">
+    <span class="kpi-label">Active Alerts</span>
+    <strong class="kpi-value">{alerts_count:,}</strong>
+    <span class="kpi-hint">Flagged as price too high</span>
+  </div>
+</section>"""
+    return html, 200, {"Content-Type": "text/html"}
+
+
+@app.route("/api/cards")
+def api_cards():
+    """Return My Cards page fragment: action buttons + DataTable rows."""
     from .config import load_config
     _, products = load_config(CONFIG_PATH)
     products = [p for p in products if p.status != "sold"]
-
     products_with_data = get_all_products_with_trend()
     data_by_slug = {p['slug']: p for p in products_with_data}
 
@@ -107,94 +153,53 @@ def api_dashboard():
     for product in products:
         slug = product.slug
         info = data_by_slug.get(slug, {})
-        delta = info.get("price_delta_percent")
-        alert = info.get("alert_level", "none")
-        alert_label = info.get("alert_label", "")
         own_price = product.own_price_idr
         global_avg = info.get("global_average_idr")
-        lang = product.language
+        alert = info.get("alert_level", "none")
+        alert_label = info.get("alert_label", "")
+        delta = info.get("price_delta_percent")
 
-        delta_str = f"{delta:+.1f}%" if delta is not None else "-"
         own_price_str = f"Rp {own_price:,.0f}".replace(",", ".") if own_price else "-"
         global_str = f"Rp {global_avg:,.0f}".replace(",", ".") if global_avg else "-"
+        delta_str = f"{delta:+.1f}%" if delta is not None else "-"
+        own_order = own_price if own_price else ""
+        global_order = global_avg if global_avg is not None else ""
+        delta_order = delta if delta is not None else ""
 
-        rows.append(f"""
-        <tr class="alert-{alert}">
+        row_class = f' class="alert-{alert}"' if alert in ("red", "amber") else ""
+        rows.append(f"""<tr{row_class}>
           <td><a href="/cards/{slug}">{product.title}</a></td>
-          <td>{product.card_identity.set_symbol or '-'} </td>
-          <td>{product.card_identity.rarity or '-'} </td>
-          <td>{lang}</td>
-          <td>{product.card_identity.condition or '-'} </td>
-          <td>{own_price_str}</td>
-          <td>{global_str}</td>
-          <td>{delta_str}</td>
-          <td>{alert_label}</td>
+          <td data-order="{own_order}">{own_price_str}</td>
+          <td data-order="{global_order}">{global_str}</td>
+          <td>{product.language or '-'}</td>
+          <td data-order="{delta_order}">{delta_str}</td>
+          <td class="alert-cell" data-alert="{alert_label}">{alert_label or '-'}</td>
         </tr>""")
 
-    html = f"""<table>
-      <thead>
-        <tr>
-          <th>Card</th><th>Set</th><th>Rarity</th><th>Language</th><th>Condition</th>
-          <th>Your Price</th><th>Global Avg</th><th>Delta</th><th>Alert</th>
-        </tr>
-      </thead>
-      <tbody>{"".join(rows) if rows else "<tr><td colspan='9'>No data yet. Run the scheduler to fetch prices.</td></tr>"}</tbody>
-    </table>"""
-    return html, 200, {"Content-Type": "text/html"}
-
-
-@app.route("/api/cards")
-def api_cards():
-    """Return cards grid as HTML fragment."""
-    from .config import load_config
-    _, products = load_config(CONFIG_PATH)
-    products = [p for p in products if p.status != "sold"]
-    products_with_data = get_all_products_with_trend()
-    data_by_slug = {p['slug']: p for p in products_with_data}
-
-    cards = []
-    for product in products:
-        slug = product.slug
-        info = data_by_slug.get(slug, {})
-        own_price = product.own_price_idr
-        global_avg = info.get("global_average_idr")
-        alert = info.get("alert_level", "none")
-        alert_label = info.get("alert_label", "")
-        own_trend = info.get("own_trend_percent")
-        market_trend = info.get("market_trend_percent")
-
-        own_price_str = f"Rp {own_price:,.0f}".replace(",", ".") if own_price else "-"
-        global_str = f"Rp {global_avg:,.0f}".replace(",", ".") if global_avg else "-"
-        own_trend_str = f"{own_trend:+.1f}%" if own_trend is not None else "-"
-        market_trend_str = f"{market_trend:+.1f}%" if market_trend is not None else "-"
-
-        cards.append(f"""
-        <a href="/cards/{slug}" class="card">
-          <div class="card-top">
-            <div class="card-title">{product.title}</div>
-            {"<span class='alert-badge " + alert + "'>" + alert_label + "</span>" if alert != "none" else ""}
-          </div>
-          <div class="card-lang">{product.language}</div>
-          <div class="card-prices">
-            <div class="price-box">
-              <span>Your Price</span>
-              <strong>{own_price_str}</strong>
-              <div class="trend {'neutral' if own_trend is None else 'up' if own_trend > 0 else 'down' if own_trend < 0 else 'flat'}">{own_trend_str}</div>
-            </div>
-            <div class="price-box">
-              <span>Market Avg</span>
-              <strong>{global_str}</strong>
-              <div class="trend {'neutral' if market_trend is None else 'up' if market_trend > 0 else 'down' if market_trend < 0 else 'flat'}">{market_trend_str}</div>
-            </div>
-          </div>
-        </a>""")
-
-    html = f"""
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:var(--sp-2)">
+    actions = """
+    <div class="page-actions">
       <button class="btn" onclick="syncNewProducts()">+ Sync New Products</button>
       <button class="btn" onclick="openAddCardModal()">+ Add Card</button>
-    </div>
-    <div class="cards-grid">{"".join(cards) if cards else "<p>No cards configured.</p>"}</div>"""
+    </div>"""
+
+    if not rows:
+        table = "<p style='color:var(--muted);font-size:13px;padding:var(--sp-2) 0;'>No cards configured.</p>"
+    else:
+        table = f"""<table id="cards-table">
+  <thead>
+    <tr>
+      <th>Card</th>
+      <th>Your Price</th>
+      <th>Global Avg</th>
+      <th>Language</th>
+      <th>Delta</th>
+      <th>Alert</th>
+    </tr>
+  </thead>
+  <tbody>{"".join(rows)}</tbody>
+</table>"""
+
+    html = actions + table
     return html, 200, {"Content-Type": "text/html"}
 
 
