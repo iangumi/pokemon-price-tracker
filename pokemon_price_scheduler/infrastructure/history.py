@@ -23,6 +23,14 @@ def connect(path: Path = DB_PATH) -> sqlite3.Connection:
     return _local.conn
 
 
+def close_connection() -> None:
+    """Close the current thread's cached SQLite connection, if any."""
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        conn.close()
+        _local.conn = None
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """

@@ -9,6 +9,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+scraping = [
+    "scrapling[fetchers]>=0.4.8",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=4.0.0",
@@ -18,6 +21,9 @@ dev = [
 
 [project.scripts]
 pokemon-prices = "pokemon_price_scheduler.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["pokemon_price_scheduler*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

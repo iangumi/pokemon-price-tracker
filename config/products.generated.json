@@ -38,7 +38,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Paldean+Fates+Pokemon+Center+Elite+Trainer+Box+ETB+Sealed"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Paldean+Fates+Pokemon+Center+Elite+Trainer+Box+ETB+Sealed&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -71,7 +71,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Pikachu+KFC+PROMO"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Pikachu+KFC+PROMO&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -104,7 +104,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Mew+Ex+SAR+%28+Bubble+Mew+%29+SAR+sv4a"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Mew+Ex+SAR+%28+Bubble+Mew+%29+SAR+sv4a&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -137,7 +137,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Ditto+Metamong+Project+PROMO"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Ditto+Metamong+Project+PROMO&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -170,7 +170,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Birthday+Pikachu+Holo+Celebrations+2021+%2324"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Birthday+Pikachu+Holo+Celebrations+2021+%2324&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -203,7 +203,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Mega+Charizard+X+Ex+SAR+MA2"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Mega+Charizard+X+Ex+SAR+MA2&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -236,7 +236,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Meowth+Ex+SAR+m3"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Meowth+Ex+SAR+m3&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -269,7 +269,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Bulbasaur+Illustration+Rare+IR+AR"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Bulbasaur+Illustration+Rare+IR+AR&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -302,7 +302,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Mega+Charizard+X+Ex+Promo+Card+Black+Star+MEP+EN+023+MA+PROMO"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Mega+Charizard+X+Ex+Promo+Card+Black+Star+MEP+EN+023+MA+PROMO&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -335,7 +335,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=M+Gyarados+Ex+RR+XY9"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=M+Gyarados+Ex+RR+XY9&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -368,7 +368,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Pokemon+Ascended+Heroes+Booster+Bundle+Box"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Pokemon+Ascended+Heroes+Booster+Bundle+Box&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -401,7 +401,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Magneton+Pokemon+Center+Stamp+Promo+Card+Shinji+Kanda+159+SVP+EN+Black+Star+Promo+Elite+Trainer+Box+ETB+Surging+Sparks+PROMO"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Magneton+Pokemon+Center+Stamp+Promo+Card+Shinji+Kanda+159+SVP+EN+Black+Star+Promo+Elite+Trainer+Box+ETB+Surging+Sparks+PROMO&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -434,7 +434,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Raichu+LV.X+1st+Edition+%2326+Stormfront+Vintage-+Kartu+Pokemon+Card+TCG+Japanese"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Raichu+LV.X+1st+Edition+%2326+Stormfront+Vintage-+Kartu+Pokemon+Card+TCG+Japanese&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -467,7 +467,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Lisia%27s+Appeal+SAR+SV7a"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Lisia%27s+Appeal+SAR+SV7a&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -500,7 +500,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Mewtwo+Tim+Roket+Ex+SAR+SV10S"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Mewtwo+Tim+Roket+Ex+SAR+SV10S&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -533,7 +533,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Mewtwo+Tim+Roket+Ex+SAR+MA3"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Mewtwo+Tim+Roket+Ex+SAR+MA3&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -566,7 +566,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Pikachu+Full+Art"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Pikachu+Full+Art&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -599,7 +599,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Gengar+VMAX+SGG"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Gengar+VMAX+SGG&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -632,7 +632,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Leafeon+Vstar+SAR+s12a"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Leafeon+Vstar+SAR+s12a&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -665,7 +665,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Vaporeon+R+Holo+Foil+%3A+Old+Back+%5BPMCG2+No.134%5D%28Expansion+Pack+%22Pokemon+Jungle%22%29+R"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Vaporeon+R+Holo+Foil+%3A+Old+Back+%5BPMCG2+No.134%5D%28Expansion+Pack+%22Pokemon+Jungle%22%29+R&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -698,7 +698,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Vaporeon+Ex+SAR+sv8a"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Vaporeon+Ex+SAR+sv8a&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -731,7 +731,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Espeon+Ex+SAR+sv8a"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Espeon+Ex+SAR+sv8a&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -764,7 +764,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Mew+ex+SSR+%28Bubble+Mew+Sachet+%2F+Ekonomis%29+sv4a"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Mew+ex+SSR+%28Bubble+Mew+Sachet+%2F+Ekonomis%29+sv4a&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -797,7 +797,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Dark+Jolteon+%3A+Old+Back+%5BPMCG4+No.135%5D%28Expansion+Pack+%22Team+Rocket%22%29"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Dark+Jolteon+%3A+Old+Back+%5BPMCG4+No.135%5D%28Expansion+Pack+%22Team+Rocket%22%29&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -830,7 +830,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Dedenne+Shiny+SV051"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Dedenne+Shiny+SV051&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -863,7 +863,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Scizor+AR+sv3"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Scizor+AR+sv3&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -896,7 +896,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Mega+Lopunny+Ex+SIR+PFL+EN+SIR"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Mega+Lopunny+Ex+SIR+PFL+EN+SIR&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -929,7 +929,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Hop%27s+Zacian+Ex+SIR+JTG+EN+SIR"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Hop%27s+Zacian+Ex+SIR+JTG+EN+SIR&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -962,7 +962,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Pikachu+Promo+McD+McDonald+Sealed+Pack+PROMO"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Pikachu+Promo+McD+McDonald+Sealed+Pack+PROMO&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -995,7 +995,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Magneton+Promo+Card+Shinji+Kanda+159+SVP+EN+Black+Star+Promo+Elite+Trainer+Box+ETB+Surging+Sparks+PROMO"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Magneton+Promo+Card+Shinji+Kanda+159+SVP+EN+Black+Star+Promo+Elite+Trainer+Box+ETB+Surging+Sparks+PROMO&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1028,7 +1028,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Mew+Ex+SR+sv2a"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Mew+Ex+SR+sv2a&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1061,7 +1061,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Mistika+SAR"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Mistika+SAR&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1094,7 +1094,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Eevee+GX+%5B+SMI"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Eevee+GX+%5B+SMI&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1127,7 +1127,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Mega+Meganium+Ex+SAR+MA4"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Mega+Meganium+Ex+SAR+MA4&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1160,7 +1160,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Pokemon+Booster+Pack+151+English"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Pokemon+Booster+Pack+151+English&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1193,7 +1193,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Plusle+AR+sv3s"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Plusle+AR+sv3s&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1226,7 +1226,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Lucario+PROMO"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Lucario+PROMO&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1259,7 +1259,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Eevee+Ex+SAR+sv8a"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Eevee+Ex+SAR+sv8a&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1292,7 +1292,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=GIovanni%27s+Charisma+SAR+sv2a"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=GIovanni%27s+Charisma+SAR+sv2a&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1325,7 +1325,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Mega+Hawlucha+Ex+SAR+MA3"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Mega+Hawlucha+Ex+SAR+MA3&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1358,7 +1358,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Hydreigon+Ex+SAR+sv8s"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Hydreigon+Ex+SAR+sv8s&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1391,7 +1391,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Grimmsnarl+Marnie+Ex+SAR+MA3"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Grimmsnarl+Marnie+Ex+SAR+MA3&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1424,7 +1424,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Sylveon+Master+Ball+MasterBall+sv8a"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Sylveon+Master+Ball+MasterBall+sv8a&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1457,7 +1457,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Pokemon+Gem+Pack+Vol.+1+Horizon+Promo+Card+Sealed+PROMO"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Pokemon+Gem+Pack+Vol.+1+Horizon+Promo+Card+Sealed+PROMO&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1490,7 +1490,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Stunfisk+AR+sv11s"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Stunfisk+AR+sv11s&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1523,7 +1523,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Solosis+AR+SV11B"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Solosis+AR+SV11B&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1556,7 +1556,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Pack+Kartu+Promo+Sealed+Harta+Berkilau+Ex+PROMO"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Pack+Kartu+Promo+Sealed+Harta+Berkilau+Ex+PROMO&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1589,7 +1589,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Raichu+%5BPrism%5D+%2326+Pokemon+Japanese+Sealdass+Series+2"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Raichu+%5BPrism%5D+%2326+Pokemon+Japanese+Sealdass+Series+2&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     },
@@ -1622,7 +1622,7 @@
         {
           "name": "snkrdunk search",
           "kind": "snkrdunk_search",
-          "url": "https://snkrdunk.com/en/trading-cards/search/result?keyword=Irida+SR+s10p"
+          "url": "https://snkrdunk.com/v3/search?func=all&refId=search&keyword=Irida+SR+s10p&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
         }
       ]
     }

@@ -19,13 +19,19 @@ class CardIdentity:
         return asdict(self)
 
     def tokopedia_query(self) -> str:
-        return compact_join([self.name, self.set_symbol])
+        return compact_join([
+            self.name,
+            self.rarity,
+            self.condition,
+            self.set_symbol,
+            language_query_token(self.language),
+        ])
 
     def ebay_query(self) -> str:
-        return compact_join([self.name, self.set_symbol])
+        return self.tokopedia_query()
 
     def snkrdunk_query(self) -> str:
-        return compact_join([self.name, self.set_symbol])
+        return compact_join([self.name, self.rarity, self.set_symbol])
 
 
 RARITIES = ("SAR", "SR", "UR", "AR", "IR", "SIR", "SEC", "RR", "R", "CHR", "CSR", "PROMO")

@@ -6,6 +6,7 @@ import json
 import re
 from statistics import median
 from typing import Any
+from urllib.parse import quote_plus
 
 from ..domain.models import PriceObservation, Source, SourceResult
 from .http import fetch_text
@@ -51,7 +52,7 @@ _STORE_FALLBACK_RE = re.compile(r"(?:Rp\s?[\d.]+(?:\s?(?:rb|ribu|jt|juta))?).{0,
 def snkrdunk_search_url(keyword: str, page: int = 1) -> str:
     params = (
         f"func=all&refId=search"
-        f"&keyword={keyword.replace(' ', '+')}"
+        f"&keyword={quote_plus(keyword)}"
         f"&sortKey=default"
         f"&cardVersion=2"
         f"&categoryIds=6"

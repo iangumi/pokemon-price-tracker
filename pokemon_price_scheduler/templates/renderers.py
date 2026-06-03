@@ -7,7 +7,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
-from ...domain.models import ProductAnalysis
+from ..domain.models import ProductAnalysis
 
 env = Environment(loader=FileSystemLoader(Path(__file__).parent))
 
@@ -32,7 +32,7 @@ def render_dashboard(analyses: list[ProductAnalysis], run_id: int) -> str:
     sorted_analyses = sorted(analyses, key=lambda item: abs(item.price_delta_percent or 0), reverse=True)
     rows = []
     for analysis in sorted_analyses:
-        from ...domain.models import alert_label
+        from ..domain.models import alert_label
         identity = analysis.product.card_identity
         rows.append({
             "slug": analysis.product.slug,
@@ -62,7 +62,7 @@ def render_dashboard(analyses: list[ProductAnalysis], run_id: int) -> str:
 
 def render_card_detail(analysis: ProductAnalysis) -> str:
     identity = analysis.product.card_identity
-    from ...domain.models import alert_label
+    from ..domain.models import alert_label
 
     # Build observation lookup by source name
     observations_by_source = {}
@@ -141,7 +141,7 @@ def render_opportunities(analyses: list[ProductAnalysis]) -> str:
 
     rows = []
     for score, global_count, local_count, analysis in sorted(candidates, key=lambda item: item[0], reverse=True)[:50]:
-        from ...domain.models import alert_label
+        from ..domain.models import alert_label
         identity = analysis.product.card_identity
         rows.append({
             "slug": analysis.product.slug,

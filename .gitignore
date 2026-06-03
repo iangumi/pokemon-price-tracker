@@ -4,6 +4,7 @@ __pycache__/
 .DS_Store
 data/*.sqlite3
 data/*.log
+data/runs/
 .env
 
 # Generated reports — run output, should never be committed
@@ -22,6 +23,7 @@ pokemon_price_scheduler/static/*.min.css
 config/products.json
 
 # Agent / editor config — user-specific
+.codegraph/
 .agents/
 .claude/
 .cursorrules

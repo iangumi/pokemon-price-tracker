@@ -2,6 +2,7 @@
 
 from .infrastructure.history import (
     connect,
+    close_connection,
     init_db,
     save_run,
     get_observations_for_slug,
@@ -11,6 +12,7 @@ from .infrastructure.history import (
 
 __all__ = [
     "connect",
+    "close_connection",
     "init_db",
     "save_run",
     "get_observations_for_slug",

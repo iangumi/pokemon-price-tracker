@@ -1,21 +1,20 @@
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import json
 from pathlib import Path
 from urllib.parse import quote, quote_plus
 
-from .ai import attach_ai_summaries
-from .analyze import analyze_product
 from .card_parser import parse_card_identity
 from .config import DEFAULT_CONFIG, load_config, save_config
-from .history import save_run
 from .http import fetch_text
 from .models import Product, utc_now
-from .reports import write_reports
-from .scrapers import MarketplaceScraper, extract_store_products
-from .store_sync import get_active_store_product_urls
+from .scrapers import extract_store_products
+from .infrastructure.scrapers import snkrdunk_search_url
+from .v2.config import load_validated_config
+from .v2.models import ConfigError
+from .v2.pipeline import PipelineOptions, RunPipeline
+from .v2.storage import TraceStore
 
 
 def search_term_from_title(title: str) -> str:
@@ -23,47 +22,75 @@ def search_term_from_title(title: str) -> str:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    settings, products = load_config(Path(args.config))
+    options = PipelineOptions(
+        config_path=Path(args.config),
+        limit=args.limit,
+        min_price_idr=args.min_price_idr,
+        ai_summary=args.ai_summary,
+        debug=args.debug,
+        detect_sold=not args.no_sold_detection,
+        fetch_backend=args.fetch_backend,
+    )
+    result = RunPipeline(options).run()
+    print(f"Run {result.run_id} complete. Report: reports/latest.md")
+    print(f"Trace: python3 -m pokemon_price_scheduler inspect-run {result.run_id}")
+    return 0
 
-    # ── Sold detection: check which products are still on store page ──
-    active_urls = get_active_store_product_urls(settings)
-    if active_urls:
-        updated_products = []
-        for product in products:
-            import dataclasses as dc
-            if product.status != "sold" and product.tokopedia_url and product.tokopedia_url not in active_urls:
-                sold_product = dc.replace(product, status="sold", sold_at=utc_now().isoformat())
-                updated_products.append(sold_product)
-                print(f"  SOLD: {product.title}")
-            else:
-                updated_products.append(product)
-        products = updated_products
-        save_config(Path(args.config), settings, products)
 
-    min_price = int(settings.get("min_own_price_idr", 500000))
-    products = [product for product in products if product.own_price_idr >= min_price]
-    if args.limit:
-        products = products[: args.limit]
-    scraper = MarketplaceScraper(settings)
-    run_at = utc_now()
-    analyses = []
-    for product in products:
-        source_results = [scraper.scrape(source) for source in product.sources]
-        analyses.append(analyze_product(product, source_results, run_at, settings))
-    if args.ai_summary:
-        analyses, ai_warnings = attach_ai_summaries(analyses)
-        for warning in ai_warnings:
-            print(warning)
-    run_id = save_run(analyses)
-    write_reports(analyses, run_id)
-    print(f"Run {run_id} complete. Report: reports/latest.md")
+def cmd_validate_config(args: argparse.Namespace) -> int:
+    try:
+        settings, products = load_validated_config(Path(args.config))
+    except ConfigError as exc:
+        print(f"Invalid config: {exc}")
+        return 1
+    print(f"Config OK: {len(products)} product(s), {len(settings)} setting(s).")
+    return 0
+
+
+def cmd_inspect_run(args: argparse.Namespace) -> int:
+    store = TraceStore(Path(args.db))
+    run_id = args.run_id or store.latest_run_id()
+    if run_id is None:
+        print("No runs found.")
+        return 1
+    payload = store.inspect_run(run_id)
+    if not payload:
+        print(f"Run not found: {run_id}")
+        return 1
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_migrate_snkrdunk_urls(args: argparse.Namespace) -> int:
+    path = Path(args.config)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    changed = 0
+    for product in payload.get("products", []):
+        title = str(product.get("title", ""))
+        keyword = parse_card_identity(title).snkrdunk_query() or title
+        for source in product.get("sources", []):
+            if source.get("kind") != "snkrdunk_search":
+                continue
+            old_url = str(source.get("url", ""))
+            new_url = snkrdunk_search_url(keyword)
+            if old_url != new_url:
+                source["url"] = new_url
+                changed += 1
+    if changed and not args.dry_run:
+        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    action = "Would update" if args.dry_run else "Updated"
+    print(f"{action} {changed} SnkrDunk source URL(s) in {path}")
     return 0
 
 
 def cmd_sync_store(args: argparse.Namespace) -> int:
     settings, _ = load_config(Path(args.config))
     min_price = int(args.min_price or settings.get("min_own_price_idr", 500000))
-    html_text = fetch_text(args.url)
+    try:
+        html_text = fetch_text(args.url)
+    except RuntimeError as exc:
+        print(f"Sync failed: {exc}")
+        return 1
     products = extract_store_products(html_text, min_price)
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -133,6 +160,15 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--config", default=str(DEFAULT_CONFIG))
     run.add_argument("--limit", type=int, default=None, help="Only run the first N products from config.")
     run.add_argument("--ai-summary", action="store_true", help="Use MiniMax to add concise seller notes to reports.")
+    run.add_argument("--min-price-idr", type=int, default=None)
+    run.add_argument("--debug", action="store_true", help="Persist bounded raw source snapshots under data/runs/<run_id>.")
+    run.add_argument("--no-sold-detection", action="store_true", help="Skip Tokopedia store active/sold detection.")
+    run.add_argument(
+        "--fetch-backend",
+        choices=("auto", "stdlib", "scrapling", "scrapling_dynamic"),
+        default="auto",
+        help="Fetch backend. auto uses Scrapling for eBay when available and stdlib elsewhere.",
+    )
     run.set_defaults(func=cmd_run)
 
     sync = sub.add_parser("sync-store", help="Try to extract store products from a Tokopedia store URL.")
@@ -147,6 +183,23 @@ def build_parser() -> argparse.ArgumentParser:
     seed.add_argument("--output", default="config/products.generated.json")
     seed.add_argument("--pokemon-only", action="store_true")
     seed.set_defaults(func=cmd_seed_config)
+
+    validate = sub.add_parser("validate-config", help="Validate product config without running scrapers.")
+    validate.add_argument("--config", default=str(DEFAULT_CONFIG))
+    validate.set_defaults(func=cmd_validate_config)
+
+    inspect = sub.add_parser("inspect-run", help="Print structured run trace data.")
+    inspect.add_argument("run_id", nargs="?", type=int, default=None)
+    inspect.add_argument("--db", default="data/price_history.sqlite3")
+    inspect.set_defaults(func=cmd_inspect_run)
+
+    migrate_snkrdunk = sub.add_parser(
+        "migrate-snkrdunk-urls",
+        help="Rewrite SnkrDunk sources to the v3 search endpoint used by the parser.",
+    )
+    migrate_snkrdunk.add_argument("--config", default=str(DEFAULT_CONFIG))
+    migrate_snkrdunk.add_argument("--dry-run", action="store_true")
+    migrate_snkrdunk.set_defaults(func=cmd_migrate_snkrdunk_urls)
     return parser
 
 

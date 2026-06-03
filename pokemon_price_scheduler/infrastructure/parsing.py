@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import html
 from statistics import median
 from typing import Any
 
