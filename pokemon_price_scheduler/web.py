@@ -8,11 +8,19 @@ import threading
 import time
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, render_template_string, request
+from flask import Flask, Response, jsonify, request
 
 from .history import get_all_products_with_trend, get_observations_for_slug, history_for_slug
 from .models import Product, Source, utc_now
 from .reports import idr, pct
+from .ui_components import (
+    cards_fragment,
+    card_detail_fragment,
+    dashboard_fragment,
+    opportunities_fragment,
+    sold_cards_fragment,
+)
+from .v2.storage import TraceStore
 
 BASE_DIR = Path(__file__).parent.parent
 STATIC_DIR = BASE_DIR / "static"
@@ -24,27 +32,18 @@ app = Flask(__name__, template_folder=str(REPORTS_DIR), static_folder=str(STATIC
 
 # Track background scheduler process pid
 _scheduler_pid = None
+_scheduler_proc = None
 _refreshing_slugs: set = set()
 
 
-def _run_scheduler_bg():
-    global _scheduler_pid
-    import sys
-    import traceback
-    import logging
+def _run_scheduler_bg(proc: subprocess.Popen, log_handle):
+    global _scheduler_pid, _scheduler_proc
     try:
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "pokemon_price_scheduler", "run", "--config", str(CONFIG_PATH)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            cwd=str(BASE_DIR),
-        )
         proc.wait()
-    except Exception:
-        logging.error(f"Scheduler failed: {traceback.format_exc()}")
-        sys.stderr.write(f"Scheduler error: {traceback.format_exc()}\n")
     finally:
+        log_handle.close()
         _scheduler_pid = None
+        _scheduler_proc = None
 
 
 # ─── Static shell routes ──────────────────────────────────────────────────────
@@ -115,244 +114,50 @@ def api_dashboard():
         if info.get("alert_level") == "red":
             alerts_count += 1
 
-    html = f"""<section class="dashboard-kpis">
-  <div class="kpi-card">
-    <span class="kpi-label">Total Active Listings</span>
-    <strong class="kpi-value">{total_listings:,}</strong>
-    <span class="kpi-hint">Live cards in your store</span>
-  </div>
-  <div class="kpi-card">
-    <span class="kpi-label">Total Active Portfolio Value</span>
-    <strong class="kpi-value">{idr(portfolio_value)}</strong>
-    <span class="kpi-hint">Sum of your Tokopedia prices</span>
-  </div>
-  <div class="kpi-card">
-    <span class="kpi-label">Total Market Value</span>
-    <strong class="kpi-value">{idr(market_value)}</strong>
-    <span class="kpi-hint">Sum of global averages (priced cards)</span>
-  </div>
-  <div class="kpi-card kpi-card--alert">
-    <span class="kpi-label">Active Alerts</span>
-    <strong class="kpi-value">{alerts_count:,}</strong>
-    <span class="kpi-hint">Flagged as price too high</span>
-  </div>
-</section>"""
+    store = TraceStore(BASE_DIR / "data" / "price_history.sqlite3")
+    latest_run_id = store.latest_run_id()
+    latest_run = store.inspect_run(latest_run_id) if latest_run_id is not None else None
+    html = dashboard_fragment(
+        total_listings=total_listings,
+        portfolio_value=portfolio_value,
+        market_value=market_value,
+        alerts_count=alerts_count,
+        latest_run=latest_run,
+    )
     return html, 200, {"Content-Type": "text/html"}
 
 
 @app.route("/api/cards")
 def api_cards():
-    """Return My Cards page fragment: action buttons + DataTable rows."""
+    """Return My Cards page fragment: action buttons + AG Grid rows."""
     from .config import load_config
     _, products = load_config(CONFIG_PATH)
     products = [p for p in products if p.status != "sold"]
     products_with_data = get_all_products_with_trend()
     data_by_slug = {p['slug']: p for p in products_with_data}
 
-    rows = []
-    for product in products:
-        slug = product.slug
-        info = data_by_slug.get(slug, {})
-        own_price = product.own_price_idr
-        global_avg = info.get("global_average_idr")
-        alert = info.get("alert_level", "none")
-        alert_label = info.get("alert_label", "")
-        delta = info.get("price_delta_percent")
-
-        own_price_str = f"Rp {own_price:,.0f}".replace(",", ".") if own_price else "-"
-        global_str = f"Rp {global_avg:,.0f}".replace(",", ".") if global_avg else "-"
-        delta_str = f"{delta:+.1f}%" if delta is not None else "-"
-        own_order = own_price if own_price else ""
-        global_order = global_avg if global_avg is not None else ""
-        delta_order = delta if delta is not None else ""
-
-        row_class = f' class="alert-{alert}"' if alert in ("red", "amber") else ""
-        rows.append(f"""<tr{row_class}>
-          <td><a href="/cards/{slug}">{product.title}</a></td>
-          <td data-order="{own_order}">{own_price_str}</td>
-          <td data-order="{global_order}">{global_str}</td>
-          <td>{product.language or '-'}</td>
-          <td data-order="{delta_order}">{delta_str}</td>
-          <td class="alert-cell" data-alert="{alert_label}">{alert_label or '-'}</td>
-        </tr>""")
-
-    actions = """
-    <div class="page-actions">
-      <button class="btn" onclick="syncNewProducts()">+ Sync New Products</button>
-      <button class="btn" onclick="openAddCardModal()">+ Add Card</button>
-    </div>"""
-
-    if not rows:
-        table = "<p style='color:var(--muted);font-size:13px;padding:var(--sp-2) 0;'>No cards configured.</p>"
-    else:
-        table = f"""<table id="cards-table">
-  <thead>
-    <tr>
-      <th>Card</th>
-      <th>Your Price</th>
-      <th>Global Avg</th>
-      <th>Language</th>
-      <th>Delta</th>
-      <th>Alert</th>
-    </tr>
-  </thead>
-  <tbody>{"".join(rows)}</tbody>
-</table>"""
-
-    html = actions + table
-    return html, 200, {"Content-Type": "text/html"}
+    return cards_fragment(products, data_by_slug), 200, {"Content-Type": "text/html"}
 
 
 @app.route("/api/cards/<slug>")
 def api_card_detail(slug: str):
     """Return card detail page as HTML fragment."""
     from .config import load_config
-    from .history import history_for_slug
-    from .reports import idr, pct
     _, products = load_config(CONFIG_PATH)
     product = next((p for p in products if p.slug == slug), None)
     if product is None:
         return "<p>Card not found</p>", 404, {"Content-Type": "text/html"}
 
-    history = history_for_slug(slug)
     products_with_data = get_all_products_with_trend()
     info = next((p for p in products_with_data if p['slug'] == slug), {})
-
-    identity = product.card_identity
-    own_price = product.own_price_idr
-    global_avg = info.get("global_average_idr")
-    delta = info.get("price_delta_percent")
-    alert = info.get("alert_level", "none")
-    alert_label = info.get("alert_label", "")
-    is_sold = product.status == "sold"
-
-    badge = f'<span class="alert-badge {alert}">{alert_label}</span>' if alert != "none" else "-"
-    metrics_html = f"""
-    <section class="metrics">
-      <div><span>Your Price</span><strong>{idr(own_price)}</strong></div>
-      <div><span>Global Avg</span><strong>{idr(global_avg)}</strong></div>
-      <div><span>Delta</span><strong>{pct(delta)}</strong></div>
-      <div><span>Alert</span><strong>{badge}</strong></div>
-    </section>"""
-
-    if is_sold:
-        sold_date = product.sold_at[:10] if product.sold_at else "-"
-        metrics_html = f"""
-    <section class="metrics">
-      <div><span>Your Price</span><strong>{idr(own_price)}</strong></div>
-      <div><span>Sold At</span><strong>{sold_date}</strong></div>
-      <div><span>Status</span><strong style="color:var(--red)">SOLD</strong></div>
-    </section>"""
-
-    added_date = product.added_at[:10] if product.added_at else "-"
-    sold_date = product.sold_at[:10] if product.sold_at else "-"
-    identity_html = f"""
-    <section class="identity">
-      <h2>Card Identity</h2>
-      <dl>
-        <dt>Name</dt><dd>{identity.name or product.title}</dd>
-        <dt>Set</dt><dd>{identity.set_symbol or '-'}</dd>
-        <dt>Card Number</dt><dd>{identity.card_number or '-'}</dd>
-        <dt>Rarity</dt><dd>{identity.rarity or '-'}</dd>
-        <dt>Language</dt><dd>{identity.language or '-'}</dd>
-        <dt>Condition</dt><dd>{identity.condition or '-'}</dd>
-        <dt>Added</dt><dd>{added_date}</dd>
-        <dt>Sold</dt><dd>{sold_date if is_sold else '-'}</dd>
-      </dl>
-    </section>"""
-
-    chart_path = f"charts/{slug}.svg"
-    chart_exists = (REPORTS_DIR / chart_path).exists()
-    chart_html = f"""
-    <section>
-      <h2>Price Change</h2>
-      <img src="/{chart_path}" alt="Price chart for {identity.name or product.title}">
-    </section>""" if chart_exists else ""
-
-    # Fetch latest observations from DB for display
     observations = get_observations_for_slug(slug)
-    obs_by_source: dict[str, list[dict]] = {}
-    for obs in observations:
-        obs_by_source.setdefault(obs["source_name"], []).append(obs)
-
-    # Build source sections from DB observations
-    MY_STORE_MARKER = "(Our store) - "
-    MY_STORE_PATTERNS = ("tokopedia.com/iantechcardstore", "tokopedia.com/iantechstore")
-    source_sections = []
-    if obs_by_source:
-        for src_name, obs_list in obs_by_source.items():
-            # Sort by price descending
-            sorted_obs = sorted(obs_list, key=lambda o: o["price_idr"], reverse=True)
-            rows = []
-            for obs in sorted_obs[:10]:
-                legit = "yes" if obs["is_legit"] else "filtered"
-                is_own = any(p in obs["url"] for p in MY_STORE_MARKER if p)
-                is_own = any(p in obs["url"] for p in MY_STORE_PATTERNS)
-                title = obs["title"] or src_name
-                if is_own:
-                    title = f'<span style="color:var(--green);font-weight:600;">{MY_STORE_MARKER}{title}</span>'
-                rows.append(
-                    f"""<tr{' style="background:#4ade8018;"' if is_own else ''}>
-                      <td><a href="{obs['url']}" target="_blank">{title}</a></td>
-                      <td>Rp {obs['price_idr']:,}</td>
-                      <td>{obs['source_kind']}</td>
-                      <td>-</td>
-                      <td>{legit}</td>
-                    </tr>"""
-                )
-            source_sections.append(f"""
-            <section>
-              <h2>{src_name}</h2>
-              <table>
-                <thead><tr><th>Listing</th><th>Price</th><th>Source</th><th>Match</th><th>Used</th></tr></thead>
-                <tbody>{''.join(rows)}</tbody>
-              </table>
-            </section>""")
-    else:
-        source_sections.append(
-            """<section>
-              <p style="color:var(--muted);font-size:12px;">No price data yet. Click "Refresh Prices" to search Tokopedia.</p>
-            </section>"""
-        )
-    sources_html = "".join(source_sections)
-
-    tokopedia_url = product.tokopedia_url or next(
-        (s.url for s in product.sources if s.kind == "tokopedia_find"), ""
+    chart_exists = (REPORTS_DIR / "charts" / f"{slug}.svg").exists()
+    html = card_detail_fragment(
+        product=product,
+        info=info,
+        observations=observations,
+        chart_exists=chart_exists,
     )
-
-    search_terms_display = product.search_terms[0] if product.search_terms else ""
-
-    buttons_html = ""
-    if not is_sold:
-        buttons_html = f"""
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:var(--sp-2)">
-      <button class="btn" onclick="window.open('{tokopedia_url}', '_blank')">View Product on Tokopedia</button>
-      <button id="refresh-btn" class="btn" onclick="refreshCard('{slug}')">
-        <span id="refresh-btn-text">Refresh Competitor Prices</span>
-      </button>
-      <button id="update-price-btn" class="btn" onclick="updatePrice('{slug}')">
-        <span id="update-price-btn-text">Sync Store Price</span>
-      </button>
-    </div>
-    <div style="display:flex;gap:8px;margin-bottom:var(--sp-2);align-items:center;">
-      <label style="font-size:11px;color:var(--muted);white-space:nowrap;">Search Keyword:</label>
-      <input id="search-term-input" type="text" value="{search_terms_display}"
-             style="flex:1;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:6px 8px;font-size:12px;">
-      <button class="btn" onclick="updateSearchTerm('{slug}')">Save</button>
-    </div>"""
-    else:
-        buttons_html = f"""
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:var(--sp-2)">
-      <button class="btn" onclick="window.open('{tokopedia_url}', '_blank')">View Product on Tokopedia</button>
-    </div>"""
-
-    html = f"""
-    {buttons_html}
-    {metrics_html}
-    {identity_html}
-    {chart_html}
-    {sources_html}"""
-
     return html, 200, {"Content-Type": "text/html"}
 
 
@@ -363,35 +168,7 @@ def api_sold_cards():
     _, products = load_config(CONFIG_PATH)
     sold = [p for p in products if p.status == "sold"]
 
-    cards = []
-    for product in sold:
-        sold_date = product.sold_at[:10] if product.sold_at else "-"
-        own_price_str = idr(product.own_price_idr)
-        cards.append(f"""
-        <div class="card sold-card" id="sold-{product.slug}">
-          <div class="card-top">
-            <a href="/cards/{product.slug}" class="card-title" style="text-decoration:none;color:inherit;">{product.title}</a>
-            <span class="alert-badge red">SOLD</span>
-          </div>
-          <div class="card-lang">{product.language}</div>
-          <div class="card-prices">
-            <div class="price-box">
-              <span>Your Price</span>
-              <strong>{own_price_str}</strong>
-            </div>
-            <div class="price-box">
-              <span>Sold At</span>
-              <strong>{sold_date}</strong>
-            </div>
-          </div>
-          <div style="margin-top:var(--sp-1);">
-            <button class="btn" onclick="revertSold('{product.slug}')">Still in store</button>
-          </div>
-        </div>""")
-
-    html = f"""
-    <div class="cards-grid">{"".join(cards) if cards else "<p>No sold cards yet.</p>"}</div>"""
-    return html, 200, {"Content-Type": "text/html"}
+    return sold_cards_fragment(sold), 200, {"Content-Type": "text/html"}
 
 
 @app.route("/api/products/sync", methods=["POST"])
@@ -417,6 +194,7 @@ def api_sync_store_products():
     for item in new_products:
         identity = parse_card_identity(item["title"])
         term = identity.tokopedia_query() or item["title"]
+        snkrdunk_term = identity.snkrdunk_query() or term
         sources = [
             Source(
                 name="tokopedia competitors",
@@ -431,7 +209,11 @@ def api_sync_store_products():
             Source(
                 name="snkrdunk search",
                 kind="snkrdunk_search",
-                url=f"https://snkrdunk.com/v3/search?func=all&keyword={quote_plus(term)}&perPage=30&page=1",
+                url=(
+                    "https://snkrdunk.com/v3/search?func=all&refId=search"
+                    f"&keyword={quote_plus(snkrdunk_term)}"
+                    "&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
+                ),
             ),
         ]
         product = Product(
@@ -460,26 +242,7 @@ def api_sync_store_products():
 def api_opportunities():
     """Return opportunities table as HTML fragment."""
     products_with_data = get_all_products_with_trend()
-
-    rows = []
-    for p in products_with_data:
-        rows.append(f"""
-        <tr>
-          <td><a href="/cards/{p['slug']}">{p.get('title', p['slug'])}</a></td>
-          <td>-</td>
-          <td>-</td>
-          <td>-</td>
-          <td>-</td>
-          <td>-</td>
-          <td>-</td>
-          <td>Review as potential import if global listings are liquid and local listings are thin.</td>
-        </tr>""")
-
-    html = f"""<table>
-      <thead><tr><th>Card</th><th>Set</th><th>Rarity</th><th>Global Avg</th><th>Global Items</th><th>Local Items</th><th>Score</th><th>Note</th></tr></thead>
-      <tbody>{"".join(rows) if rows else "<tr><td colspan='8'>No opportunity candidates yet.</td></tr>"}</tbody>
-    </table>"""
-    return html, 200, {"Content-Type": "text/html"}
+    return opportunities_fragment(products_with_data), 200, {"Content-Type": "text/html"}
 
 
 # ─── Actions ─────────────────────────────────────────────────────────────────
@@ -707,16 +470,30 @@ def run_single_card_status(slug: str):
 
 @app.route("/run", methods=["POST"])
 def run_scheduler():
-    global _scheduler_pid
+    global _scheduler_pid, _scheduler_proc
+    if _scheduler_pid is not None:
+        return jsonify({"ok": False, "error": "Scheduler already running"}), 409
     try:
+        log_path = BASE_DIR / "data" / "scheduler.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_handle = log_path.open("a", encoding="utf-8")
         proc = subprocess.Popen(
-            [sys.executable, "-m", "pokemon_price_scheduler", "run", "--config", str(CONFIG_PATH)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            [
+                sys.executable,
+                "-m",
+                "pokemon_price_scheduler",
+                "run",
+                "--config",
+                str(CONFIG_PATH),
+                "--debug",
+            ],
+            stdout=log_handle,
+            stderr=log_handle,
             cwd=str(BASE_DIR)
         )
         _scheduler_pid = proc.pid
-        thread = threading.Thread(target=_run_scheduler_bg, daemon=True)
+        _scheduler_proc = proc
+        thread = threading.Thread(target=_run_scheduler_bg, args=(proc, log_handle), daemon=True)
         thread.start()
         return jsonify({"ok": True, "message": "Scheduler started"}), 202
     except Exception as exc:
@@ -742,6 +519,15 @@ def run_status():
             time.sleep(3)
 
     return Response(generate(), mimetype='text/event-stream')
+
+
+@app.route("/api/runs/latest")
+def api_latest_run():
+    store = TraceStore(BASE_DIR / "data" / "price_history.sqlite3")
+    run_id = store.latest_run_id()
+    if run_id is None:
+        return jsonify({"ok": False, "error": "No runs found"}), 404
+    return jsonify({"ok": True, "run": store.inspect_run(run_id)})
 
 
 @app.route("/latest.md")

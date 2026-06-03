@@ -8,10 +8,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/vendor/ag-grid/ag-grid.css">
+  <link rel="stylesheet" href="/vendor/ag-grid/ag-theme-quartz.css">
   <script src="/htmx.min.js?v=3"></script>
   <script defer src="/alpine.min.js?v=3"></script>
-  <script src="/jquery.min.js"></script>
-  <script src="/dataTables.min.js"></script>
+  <script src="/vendor/ag-grid/ag-grid-community.min.js"></script>
   <style>
     :root {
       --bg:        #1a1a1e;
@@ -525,93 +526,390 @@
     .toast.ok     { border-color: var(--green); color: var(--green); }
     .toast.error  { border-color: var(--red);   color: var(--red);   }
 
-    /* DataTables dark theme overrides */
-    #content .dataTables_wrapper { overflow-x: auto; }
-    #content .dataTables_filter { margin-bottom: var(--sp-2); }
-    #content .dataTables_filter input {
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      color: var(--text);
-      padding: 6px 10px;
-      font-size: 13px;
-      outline: none;
+    /* Trading desk refresh */
+    :root {
+      --bg: #101317;
+      --surface: #171d23;
+      --surface-2: #202833;
+      --surface-3: #293340;
+      --border: #33404c;
+      --text: #edf3f8;
+      --muted: #91a2b3;
+      --accent: #22d3ee;
+      --accent-h: #67e8f9;
+      --green: #22c55e;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --blue: #38bdf8;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
     }
-    #content .dataTables_filter input:focus { border-color: var(--accent); }
-    #content .dataTables_length { margin-bottom: var(--sp-2); }
-    #content .dataTables_length select {
+    body {
+      background:
+        radial-gradient(circle at 20% -10%, rgba(34, 211, 238, 0.14), transparent 34rem),
+        linear-gradient(135deg, #0e1217 0%, #101820 45%, #0b1116 100%);
+    }
+    .sidebar {
+      background: rgba(15, 20, 26, 0.94);
+      backdrop-filter: blur(18px);
+    }
+    .sidebar-brand h1 { font-size: 18px; letter-spacing: -0.03em; }
+    .sidebar nav a {
+      min-height: 38px;
+      border: 1px solid transparent;
+    }
+    .sidebar nav a.active {
+      color: var(--accent-h);
+      background: rgba(34, 211, 238, 0.10);
+      border-color: rgba(34, 211, 238, 0.25);
+    }
+    .topbar {
+      background: rgba(16, 22, 29, 0.82);
+      backdrop-filter: blur(18px);
+    }
+    .topbar h1 { font-size: 20px; }
+    .main {
+      background-image: linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+      background-size: 32px 32px;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-bottom: var(--sp-2);
+    }
+    .btn {
+      border: 1px solid rgba(34, 211, 238, 0.32);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.02) inset;
+    }
+    .btn--primary, .btn {
+      background: linear-gradient(135deg, var(--accent), #0ea5e9);
+      color: #061016;
+    }
+    .btn--secondary {
       background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
       color: var(--text);
-      padding: 4px 8px;
+      border-color: var(--border);
+    }
+    .btn--secondary:hover {
+      background: var(--surface-3);
+      border-color: var(--accent);
+      color: var(--accent-h);
+    }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: var(--sp-2);
+      margin-bottom: var(--sp-3);
+    }
+    .metric-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015)), var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 18px;
+      min-height: 112px;
+    }
+    .metric-card--success { border-color: rgba(34, 197, 94, 0.35); }
+    .metric-card--danger { border-color: rgba(239, 68, 68, 0.45); }
+    .metric-card--warning { border-color: rgba(245, 158, 11, 0.45); }
+    .metric-label {
+      display: block;
+      color: var(--muted);
+      font-family: var(--font-display);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .metric-value {
+      display: block;
+      color: var(--text);
+      font-family: var(--font-display);
+      font-size: clamp(22px, 2.6vw, 34px);
+      line-height: 1;
+      letter-spacing: -0.04em;
+      margin-bottom: 10px;
+    }
+    .metric-hint {
+      display: block;
+      color: var(--muted);
       font-size: 12px;
-      outline: none;
+      line-height: 1.45;
     }
-    #content table.dataTable {
+    .panel {
+      background: rgba(23, 29, 35, 0.88);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px;
+      margin-bottom: var(--sp-3);
+      box-shadow: 0 24px 80px rgba(0,0,0,0.24);
+    }
+    .panel-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: var(--sp-2);
+      margin-bottom: var(--sp-2);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 12px;
+    }
+    .panel-header h2 {
+      border: 0;
+      padding: 0;
+      margin: 0;
+      font-size: 15px;
+    }
+    .panel-subtitle {
+      color: var(--muted);
+      font-size: 12px;
+      margin: 0;
+      max-width: 520px;
+    }
+    .table-shell {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+    }
+    table {
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+    }
+    th {
+      background: #111820;
+      color: #9fb3c8;
+      border-bottom-color: var(--border);
+    }
+    td {
+      border-bottom-color: rgba(51, 64, 76, 0.72);
+    }
+    .ag-grid-shell {
+      min-height: 360px;
+      padding: 0;
+    }
+    .ag-grid-host {
+      width: 100%;
+      height: 420px;
+      border-radius: var(--radius-md);
+    }
+    .data-table--compact .ag-grid-host {
+      height: 320px;
+    }
+    .ag-cell {
+      display: flex;
+      align-items: center;
+    }
+    .ag-header-cell-text {
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .table-title {
+      display: block;
+      color: #dbeafe;
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.35;
+      text-decoration: none;
+    }
+    .table-title:hover {
+      color: var(--accent-h);
+    }
+    .table-subtitle {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      margin-top: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .table-money {
+      color: #f4f8fb;
+      font-weight: 850;
+      letter-spacing: .01em;
+    }
+    .table-percent {
+      font-weight: 850;
+    }
+    .table-percent--positive { color: var(--green); }
+    .table-percent--negative { color: var(--red); }
+    .table-percent--neutral { color: var(--muted); }
+    .table-muted {
+      color: var(--muted);
+      font-weight: 650;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 24px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      background: rgba(255,255,255,0.03);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .status-badge--success { border-color: rgba(34,197,94,.45); color: var(--green); background: rgba(34,197,94,.10); }
+    .status-badge--danger { border-color: rgba(239,68,68,.5); color: var(--red); background: rgba(239,68,68,.10); }
+    .status-badge--warning { border-color: rgba(245,158,11,.5); color: var(--amber); background: rgba(245,158,11,.10); }
+    .status-badge--neutral { border-color: rgba(34,211,238,.35); color: var(--accent-h); background: rgba(34,211,238,.08); }
+    .status-badge--muted { color: var(--muted); }
+    .field-row {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: var(--sp-2);
+      align-items: start;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      border-collapse: separate;
-      overflow: hidden;
+      padding: var(--sp-2);
+      margin-bottom: var(--sp-3);
     }
-    #content table.dataTable thead th {
-      background: var(--surface-2);
+    .field-row label {
       color: var(--muted);
-      font-family: var(--font-display);
       font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
+      font-weight: 800;
       text-transform: uppercase;
-      padding: 10px var(--sp-2);
-      border-bottom: 1px solid var(--border);
-      white-space: nowrap;
+      letter-spacing: .09em;
+      padding-top: 10px;
     }
-    #content table.dataTable tbody td {
-      padding: 10px var(--sp-2);
-      font-size: 13px;
-      border-bottom: 1px solid var(--border);
-      color: var(--text);
-      vertical-align: middle;
+    .field-control {
+      display: flex;
+      gap: 10px;
+      align-items: center;
     }
-    #content table.dataTable tbody tr:last-child td { border-bottom: none; }
-    #content table.dataTable tbody tr:hover td { background: var(--surface-2); }
-    #content table.dataTable tbody tr.alert-red td { background: #f8717115; }
-    #content table.dataTable tbody tr.alert-amber td { background: #fbbf2415; }
-    #content .dataTables_info {
-      color: var(--muted);
-      font-size: 12px;
-      padding: var(--sp-1) 0;
-    }
-    #content .dataTables_paginate { padding: var(--sp-1) 0; }
-    #content .paginate_button {
-      display: inline-block;
-      padding: 5px 10px;
-      margin-right: 4px;
-      border-radius: var(--radius-sm);
-      font-size: 12px;
-      color: var(--text) !important;
-      cursor: pointer;
-      background: var(--surface-2);
+    .input, .modal input {
+      width: 100%;
+      min-height: 38px;
+      background: #111820;
       border: 1px solid var(--border);
-      transition: all var(--motion-fast);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      padding: 8px 11px;
+      font-size: 13px;
     }
-    #content .paginate_button:hover {
-      background: var(--surface);
+    .input:focus, .modal input:focus {
+      outline: none;
       border-color: var(--accent);
-      color: var(--accent) !important;
+      box-shadow: 0 0 0 3px rgba(34,211,238,.12);
     }
-    #content .paginate_button.current {
-      background: var(--accent) !important;
-      border-color: var(--accent) !important;
-      color: var(--bg) !important;
-      font-weight: 600;
+    .field-help {
+      color: var(--muted);
+      font-size: 11px;
     }
-    #content .paginate_button.disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
+    .identity-list {
+      grid-template-columns: minmax(110px, 170px) 1fr;
+      margin: 0;
+      background: transparent;
+      border: 0;
+      padding: 0;
     }
-    #content .sorting { cursor: pointer; }
+    .chart-image {
+      width: 100%;
+      background: #111820;
+      border-color: var(--border);
+      border-radius: var(--radius-md);
+    }
+    .empty-state {
+      display: grid;
+      gap: 6px;
+      padding: var(--sp-4);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius-md);
+      color: var(--muted);
+      background: rgba(255,255,255,0.02);
+      text-align: center;
+    }
+    .empty-state strong {
+      color: var(--text);
+      font-family: var(--font-display);
+      font-size: 16px;
+    }
+    .product-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--sp-2);
+    }
+    .product-card__header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--sp-1);
+      margin-bottom: var(--sp-1);
+    }
+    .product-card__title {
+      color: var(--text);
+      font-weight: 800;
+      line-height: 1.35;
+    }
+    .product-card__meta {
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: var(--sp-1);
+    }
+    .mini-metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--sp-1);
+    }
+    .mini-metrics .metric-card {
+      min-height: auto;
+      padding: 12px;
+    }
+    .mini-metrics .metric-value { font-size: 17px; }
+    .card-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: var(--sp-2);
+    }
+    .trend--up { color: var(--green); }
+    .trend--down { color: var(--red); }
+    .trend--flat { color: var(--muted); }
+    #loading-msg {
+      color: var(--muted);
+      padding: var(--sp-4);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius-md);
+      background: rgba(255,255,255,0.02);
+    }
+    @media (max-width: 860px) {
+      body { display: block; }
+      .sidebar {
+        position: relative;
+        width: 100%;
+        min-width: 0;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .sidebar nav {
+        flex-direction: row;
+        overflow-x: auto;
+      }
+      .sidebar .spacer { display: none; }
+      .content { min-height: auto; }
+      .topbar { padding: var(--sp-2); }
+      .main { padding: var(--sp-2); }
+      .field-row { grid-template-columns: 1fr; }
+      .field-control { flex-direction: column; align-items: stretch; }
+      .toolbar { justify-content: stretch; }
+      .toolbar .btn { flex: 1; text-align: center; }
+    }
   </style>
 </head>
 <body x-data="app()">
@@ -624,19 +922,19 @@
     </div>
     <div class="sidebar-section-label">Navigation</div>
     <nav>
-      <a href="/" :class="{ 'active': currentPage === 'dash' }" @click="navigateTo('/')">
+      <a href="/" :class="{ 'active': currentPage === 'dash' }" @click.prevent="navigateTo('/')">
         <span>◈</span> Dashboard
       </a>
-      <a href="/cards" :class="{ 'active': currentPage === 'cards' }" @click="navigateTo('/cards')">
+      <a href="/cards" :class="{ 'active': currentPage === 'cards' }" @click.prevent="navigateTo('/cards')">
         <span>◫</span> My Cards
       </a>
       <a href="latest.md" :class="{ 'active': currentPage === 'reports' }" @click="setPage('reports')">
         <span>◻</span> Reports
       </a>
-      <a href="/opportunities" :class="{ 'active': currentPage === 'ops' }" @click="navigateTo('/opportunities')">
+      <a href="/opportunities" :class="{ 'active': currentPage === 'ops' }" @click.prevent="navigateTo('/opportunities')">
         <span>◇</span> Opportunities
       </a>
-      <a href="/soldcards" :class="{ 'active': currentPage === 'sold' }" @click="navigateTo('/soldcards')">
+      <a href="/soldcards" :class="{ 'active': currentPage === 'sold' }" @click.prevent="navigateTo('/soldcards')">
         <span>◻</span> Sold Cards
       </a>
     </nav>
@@ -670,6 +968,164 @@
   </div>
 
   <script>
+    window._agGrids = [];
+
+    function escapeHtml(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function idr(value) {
+      if (value == null || value === '') return '-';
+      var number = Number(value);
+      if (!Number.isFinite(number)) return '-';
+      return 'Rp ' + Math.round(number).toLocaleString('id-ID');
+    }
+
+    function pct(value) {
+      if (value == null || value === '') return '-';
+      var number = Number(value);
+      if (!Number.isFinite(number)) return '-';
+      return (number > 0 ? '+' : '') + number.toFixed(1) + '%';
+    }
+
+    function badgeHtml(label, tone) {
+      var safeTone = tone || 'neutral';
+      return '<span class="status-badge status-badge--' + safeTone + '">' + escapeHtml(label || '-') + '</span>';
+    }
+
+    function trendClass(value) {
+      var number = Number(value);
+      if (!Number.isFinite(number) || number === 0) return 'flat';
+      return number > 0 ? 'up' : 'down';
+    }
+
+    var agRenderers = {
+      cardLink: function(params) {
+        var title = params.value || '-';
+        var slug = params.data && params.data.slug;
+        if (!slug) return escapeHtml(title);
+        return '<a class="table-title" href="/cards/' + encodeURIComponent(slug) + '">' + escapeHtml(title) + '</a>';
+      },
+      externalLink: function(params) {
+        var title = params.value || '-';
+        var url = params.data && params.data.url;
+        if (!url) return escapeHtml(title);
+        return '<a class="table-title" href="' + escapeHtml(url) + '" target="_blank" rel="noopener">' + escapeHtml(title) + '</a>';
+      },
+      alertBadge: function(params) {
+        var level = params.value || 'none';
+        var label = (params.data && params.data.alert_label) || 'Aligned';
+        if (level === 'red') return badgeHtml(label || 'Price too high', 'danger');
+        if (level === 'amber') return badgeHtml(label || 'Price a bit high', 'warning');
+        return badgeHtml(label || 'Aligned', 'muted');
+      },
+      badgeDanger: function(params) {
+        return badgeHtml(params.value || 'error', 'danger');
+      },
+      sourceBadge: function(params) {
+        return badgeHtml(String(params.value || '-').replace(/_/g, ' '), 'neutral');
+      },
+      decisionBadge: function(params) {
+        var used = params.data && params.data.used;
+        return badgeHtml(params.value || (used ? 'Used' : 'Filtered'), used ? 'success' : 'muted');
+      },
+      moneyValue: function(params) {
+        var value = idr(params.value);
+        var className = value === '-' ? 'table-muted' : 'table-money';
+        return '<span class="' + className + '">' + escapeHtml(value) + '</span>';
+      },
+      percentValue: function(params) {
+        var number = Number(params.value);
+        var tone = !Number.isFinite(number) || number === 0 ? 'neutral' : number > 0 ? 'positive' : 'negative';
+        return '<span class="table-percent table-percent--' + tone + '">' + escapeHtml(pct(params.value)) + '</span>';
+      },
+      trend: function(params) {
+        return '<span class="trend trend--' + trendClass(params.value) + '">' + escapeHtml(pct(params.value)) + '</span>';
+      }
+    };
+
+    var agFormatters = {
+      idr: function(params) { return idr(params.value); },
+      pct: function(params) { return pct(params.value); }
+    };
+
+    function buildColumnDefs(rawColumns) {
+      return rawColumns.map(function(column) {
+        var next = Object.assign({}, column);
+        if (typeof next.cellRenderer === 'string') {
+          next.cellRenderer = agRenderers[next.cellRenderer] || undefined;
+        }
+        if (typeof next.valueFormatter === 'string') {
+          next.valueFormatter = agFormatters[next.valueFormatter] || undefined;
+        }
+        delete next.alwaysRender;
+        next.sortable = next.sortable !== false;
+        next.filter = next.filter !== false;
+        next.resizable = next.resizable !== false;
+        return next;
+      });
+    }
+
+    function destroyAgGrids() {
+      (window._agGrids || []).forEach(function(api) {
+        if (api && typeof api.destroy === 'function') api.destroy();
+      });
+      window._agGrids = [];
+    }
+
+    function resolveAgTheme() {
+      if (!window.agGrid || !window.agGrid.themeQuartz || !window.agGrid.colorSchemeDarkBlue) {
+        return null;
+      }
+      if (typeof window.agGrid.themeQuartz.withPart !== 'function') {
+        return null;
+      }
+      return window.agGrid.themeQuartz.withPart(window.agGrid.colorSchemeDarkBlue);
+    }
+
+    function initAgGrids(root) {
+      var scope = root || document;
+      var hosts = scope.querySelectorAll('.ag-grid-host[data-columns][data-rows]');
+      hosts.forEach(function(host) {
+        if (!window.agGrid || typeof window.agGrid.createGrid !== 'function') {
+          host.innerHTML = '<div class="empty-state"><strong>Table failed to load</strong><span>AG Grid assets are unavailable.</span></div>';
+          return;
+        }
+        try {
+          var columns = JSON.parse(host.dataset.columns || '[]');
+          var rows = JSON.parse(host.dataset.rows || '[]');
+          var gridOptions = {
+            columnDefs: buildColumnDefs(columns),
+            rowData: rows,
+            animateRows: true,
+            pagination: rows.length > 12,
+            paginationPageSize: 12,
+            paginationPageSizeSelector: [12, 25, 50, 100],
+            suppressCellFocus: true,
+            enableCellTextSelection: true,
+            domLayout: rows.length <= 6 ? 'autoHeight' : 'normal',
+            defaultColDef: {
+              minWidth: 120,
+              wrapText: true,
+              autoHeight: true
+            }
+          };
+          var theme = resolveAgTheme();
+          if (theme) gridOptions.theme = theme;
+          var gridApi = window.agGrid.createGrid(host, gridOptions);
+          window._agGrids.push(gridApi);
+        } catch (error) {
+          console.error('AG Grid init failed:', error);
+          host.innerHTML = '<div class="empty-state"><strong>Table failed to load</strong><span>' + escapeHtml(error.message) + '</span></div>';
+        }
+      });
+    }
+
     function app() {
       return {
         currentPage: 'dash',
@@ -699,7 +1155,10 @@
           }
         },
 
-        navigateTo(path) {
+        navigateTo(path, pushState) {
+          if (pushState !== false && window.location.pathname !== path) {
+            history.pushState({ path: path }, '', path);
+          }
           var url = '/api/dashboard';
           if (path === '/cards') {
             this.setPage('cards');
@@ -720,46 +1179,19 @@
           }
 
           var self = this;
+          destroyAgGrids();
           this.pageContent = '<p id="loading-msg">LOADING: ' + url + '</p>';
           console.log('Set loading:', url);
           fetch(url)
             .then(function(r) { return r.text(); })
             .then(function(html) {
               console.log('Fetched content length:', html.length);
+              destroyAgGrids();
               self.pageContent = html;
-              if (self.currentPage === 'card-detail') {
-                self.pageMeta = 'Click any card to see full details and price history.';
-              }
-              if (path === '/cards') {
-                requestAnimationFrame(function() {
-                  if (window._dtCards) { window._dtCards.destroy(); window._dtCards = null; }
-                  var tbl = document.querySelector('#cards-table');
-                  if (tbl) {
-                    window._dtCards = new DataTable(tbl, {
-                      dom: 'lfrtip',
-                      pageLength: 10,
-                      order: [[4, 'desc']],
-                      columnDefs: [
-                        { targets: [1, 2, 4], type: 'num' }
-                      ],
-                      createdRow: function(row) {
-                        var alertCell = row.cells[5];
-                        if (!alertCell) return;
-                        var alert = alertCell.getAttribute('data-alert') || alertCell.textContent.trim();
-                        if (alert === 'Price too high') {
-                          row.classList.add('alert-red');
-                          alertCell.innerHTML = '<span class="alert-badge red">Price too high</span>';
-                        } else if (alert === 'Price a bit high') {
-                          row.classList.add('alert-amber');
-                          alertCell.innerHTML = '<span class="alert-badge amber">Price a bit high</span>';
-                        } else {
-                          alertCell.innerHTML = '-';
-                        }
-                      }
-                    });
-                  }
-                });
-              }
+              if (self.currentPage === 'card-detail') self.pageMeta = 'Pricing evidence, run health, and source observations.';
+              requestAnimationFrame(function() {
+                initAgGrids(document.getElementById('content'));
+              });
             })
             .catch(function(e) {
               console.error('Fetch error:', e);
@@ -769,8 +1201,19 @@
 
         init() {
           window.__INIT_CALLED = true;
+          window._app = this;
           var path = window.location.pathname;
-          this.navigateTo(path);
+          this.navigateTo(path, false);
+          var self = this;
+          window.addEventListener('popstate', function(event) {
+            self.navigateTo((event.state && event.state.path) || window.location.pathname, false);
+          });
+          document.addEventListener('click', function(event) {
+            var link = event.target.closest('a[href^="/cards/"]');
+            if (!link || link.target === '_blank') return;
+            event.preventDefault();
+            self.navigateTo(link.getAttribute('href'));
+          });
         },
 
         async runScheduler() {
@@ -844,7 +1287,7 @@
                       window._refreshing = null;
                       if (btn) btn.disabled = false;
                       if (btn) btn.classList.remove('running');
-                      if (btnText) btnText.textText = 'Refresh Prices';
+                      if (btnText) btnText.textContent = 'Refresh Prices';
                       showToast('Refresh failed', 'error');
                     }
                   })
@@ -869,8 +1312,10 @@
       };
     }
 
-    window._app = app();
-    window.refreshCard = window._app.refreshCard;
+    window._app = null;
+    window.refreshCard = function(slug) {
+      if (window._app) window._app.refreshCard(slug);
+    };
 
     function openAddCardModal() {
       document.getElementById('add-card-modal').classList.add('open');
@@ -911,6 +1356,32 @@
         body: JSON.stringify({ search_term: searchTerm })
       });
       showToast(res.ok ? 'Search term updated' : 'Failed to update search term', res.ok ? 'ok' : 'error');
+    }
+
+    async function updatePrice(slug) {
+      var btn = document.getElementById('update-price-btn');
+      var original = btn ? btn.textContent : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Syncing...';
+      }
+      try {
+        var res = await fetch('/api/cards/' + slug + '/update-price', { method: 'PUT' });
+        var data = await res.json();
+        if (!data.ok) {
+          showToast(data.error || 'Failed to sync price', 'error');
+          return;
+        }
+        showToast('Store price synced: ' + data.price_display, 'ok');
+        window._app.navigateTo('/cards/' + slug, false);
+      } catch (e) {
+        showToast(e.message || 'Failed to sync price', 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = original || 'Sync Store Price';
+        }
+      }
     }
 
     async function syncNewProducts() {
