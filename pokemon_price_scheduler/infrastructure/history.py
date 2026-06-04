@@ -96,6 +96,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if column not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+    _ensure_price_history_minute_index(conn)
     conn.commit()
 
 
@@ -167,6 +168,36 @@ def _insert_price_snapshot(
     analysis: ProductAnalysis,
     created_at: str,
 ) -> None:
+    values = (
+        run_id,
+        result_id,
+        analysis.product.own_price_idr,
+        analysis.global_average_idr,
+        analysis.price_delta_percent,
+        analysis.alert_level,
+        _source_summary(analysis),
+        created_at,
+        analysis.product.slug,
+        created_at,
+    )
+    cursor = conn.execute(
+        """
+        UPDATE price_history
+        SET run_id = ?,
+            product_result_id = ?,
+            tokopedia_price = ?,
+            market_avg_price = ?,
+            delta_percent = ?,
+            alert_status = ?,
+            source_summary = ?,
+            created_at = ?
+        WHERE card_id = ?
+          AND substr(created_at, 1, 16) = substr(?, 1, 16)
+        """,
+        values,
+    )
+    if cursor.rowcount:
+        return
     conn.execute(
         """
         INSERT INTO price_history(
@@ -185,6 +216,25 @@ def _insert_price_snapshot(
             _source_summary(analysis),
             created_at,
         ),
+    )
+
+
+def _ensure_price_history_minute_index(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        DELETE FROM price_history
+        WHERE id NOT IN (
+            SELECT MAX(id)
+            FROM price_history
+            GROUP BY card_id, substr(created_at, 1, 16)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_price_history_card_minute
+        ON price_history(card_id, substr(created_at, 1, 16))
+        """
     )
 
 
@@ -318,10 +368,12 @@ def recommended_action(tokopedia_price: int, market_avg_price: int | None) -> st
     return "Aligned"
 
 
-def repricing_queue() -> list[dict]:
+def repricing_queue(active_slugs: set[str] | None = None) -> list[dict]:
     products = get_all_products_with_trend()
     rows = []
     for product in products:
+        if active_slugs is not None and product["slug"] not in active_slugs:
+            continue
         market_avg = product.get("global_average_idr")
         own_price = int(product.get("own_price_idr") or 0)
         prices = suggested_prices(market_avg)

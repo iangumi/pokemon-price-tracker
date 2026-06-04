@@ -107,7 +107,11 @@ class RunPipeline:
 
     def _prepare_products(self, settings: dict, products: list[Product]) -> list[Product]:
         def prepare() -> list[Product]:
-            active_products = [product for product in products if product.status != "sold"]
+            active_products = [
+                product
+                for product in products
+                if product.status != "sold" and bool(product.tokopedia_url)
+            ]
             if self.options.detect_sold:
                 active_urls = get_active_store_product_urls(settings)
                 if active_urls:

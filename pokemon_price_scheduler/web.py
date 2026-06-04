@@ -44,6 +44,10 @@ _scheduler_proc = None
 _refreshing_slugs: set = set()
 
 
+def _active_tokopedia_products(products: list[Product]) -> list[Product]:
+    return [p for p in products if p.status != "sold" and bool(p.tokopedia_url)]
+
+
 def _run_scheduler_bg(proc: subprocess.Popen, log_handle):
     global _scheduler_pid, _scheduler_proc
     try:
@@ -110,7 +114,7 @@ def api_dashboard():
     """Return dashboard KPI summary cards as HTML fragment."""
     from .config import load_config
     _, products = load_config(CONFIG_PATH)
-    active = [p for p in products if p.status != "sold"]
+    active = _active_tokopedia_products(products)
 
     products_with_data = get_all_products_with_trend()
     data_by_slug = {p["slug"]: p for p in products_with_data}
@@ -145,7 +149,7 @@ def api_cards():
     """Return My Cards page fragment: action buttons + AG Grid rows."""
     from .config import load_config
     _, products = load_config(CONFIG_PATH)
-    products = [p for p in products if p.status != "sold"]
+    products = _active_tokopedia_products(products)
     products_with_data = get_all_products_with_trend()
     data_by_slug = {p['slug']: p for p in products_with_data}
 
@@ -268,7 +272,10 @@ def api_opportunities():
 @app.route("/api/repricing")
 def api_repricing():
     """Return repricing queue table as HTML fragment."""
-    return repricing_queue_fragment(repricing_queue()), 200, {"Content-Type": "text/html"}
+    from .config import load_config
+    _, products = load_config(CONFIG_PATH)
+    active_slugs = {p.slug for p in _active_tokopedia_products(products)}
+    return repricing_queue_fragment(repricing_queue(active_slugs)), 200, {"Content-Type": "text/html"}
 
 
 # ─── Actions ─────────────────────────────────────────────────────────────────

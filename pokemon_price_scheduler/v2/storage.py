@@ -349,6 +349,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         """
     )
     _ensure_columns(conn)
+    _ensure_price_history_minute_index(conn)
 
 
 def _ensure_columns(conn: sqlite3.Connection) -> None:
@@ -385,6 +386,37 @@ def _insert_price_snapshot(
     result_id: int,
     analysis: ProductAnalysis,
 ) -> None:
+    created_at = analysis.run_at.isoformat()
+    values = (
+        run_id,
+        result_id,
+        analysis.product.own_price_idr,
+        analysis.global_average_idr,
+        analysis.price_delta_percent,
+        analysis.alert_level,
+        _source_summary(analysis),
+        created_at,
+        analysis.product.slug,
+        created_at,
+    )
+    cursor = conn.execute(
+        """
+        UPDATE price_history
+        SET run_id = ?,
+            product_result_id = ?,
+            tokopedia_price = ?,
+            market_avg_price = ?,
+            delta_percent = ?,
+            alert_status = ?,
+            source_summary = ?,
+            created_at = ?
+        WHERE card_id = ?
+          AND substr(created_at, 1, 16) = substr(?, 1, 16)
+        """,
+        values,
+    )
+    if cursor.rowcount:
+        return
     conn.execute(
         """
         INSERT INTO price_history(
@@ -401,8 +433,27 @@ def _insert_price_snapshot(
             analysis.price_delta_percent,
             analysis.alert_level,
             _source_summary(analysis),
-            analysis.run_at.isoformat(),
+            created_at,
         ),
+    )
+
+
+def _ensure_price_history_minute_index(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        DELETE FROM price_history
+        WHERE id NOT IN (
+            SELECT MAX(id)
+            FROM price_history
+            GROUP BY card_id, substr(created_at, 1, 16)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_price_history_card_minute
+        ON price_history(card_id, substr(created_at, 1, 16))
+        """
     )
 
 

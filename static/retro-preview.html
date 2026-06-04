@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Retro Preview - Pokemon Price Tracker</title>
+  <link rel="stylesheet" href="/vendor/ag-grid/ag-grid.css">
+  <link rel="stylesheet" href="/vendor/ag-grid/ag-theme-quartz.css">
+  <script defer src="/alpine.min.js?v=3"></script>
+  <script src="/vendor/ag-grid/ag-grid-community.min.js"></script>
+  <style>
+    :root {
+      --case: #d8d3b7;
+      --case-dark: #9d987d;
+      --lcd: #a9bd68;
+      --lcd-light: #c7d88a;
+      --lcd-dark: #6d7f3d;
+      --ink: #182313;
+      --ink-soft: #314021;
+      --shadow: #4d5633;
+      --button: #7b3f73;
+      --button-dark: #4f244b;
+      --danger: #8b1e24;
+      --warn: #8d6512;
+      --good: #245b2d;
+      --grid: rgba(24, 35, 19, 0.12);
+      --font-ui: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      --font-body: Inter, system-ui, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; margin: 0; }
+    body {
+      font-family: var(--font-body);
+      color: var(--ink);
+      background:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+        #141a12;
+      background-size: 18px 18px;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 224px minmax(0, 1fr);
+      min-height: 100vh;
+      border: 10px solid #0a0f08;
+      background: var(--case);
+    }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 24px 18px;
+      background: #c9c39e;
+      border-right: 4px solid var(--ink);
+      box-shadow: inset -6px 0 0 rgba(24, 35, 19, 0.18);
+    }
+
+    .brand {
+      padding: 14px;
+      border: 3px solid var(--ink);
+      background: var(--lcd);
+      box-shadow: 4px 4px 0 var(--shadow);
+      font-family: var(--font-ui);
+      text-transform: uppercase;
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 18px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .brand span {
+      display: block;
+      margin-top: 6px;
+      font-size: 10px;
+      letter-spacing: 0.18em;
+    }
+
+    .nav-label {
+      font-family: var(--font-ui);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .nav {
+      display: grid;
+      gap: 8px;
+    }
+
+    .nav a {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 36px;
+      padding: 8px 10px;
+      border: 2px solid var(--ink);
+      color: var(--ink);
+      background: #eee9c7;
+      box-shadow: 3px 3px 0 var(--shadow);
+      font-family: var(--font-ui);
+      font-size: 12px;
+      font-weight: 800;
+      text-decoration: none;
+      text-transform: uppercase;
+    }
+
+    .nav a.active {
+      color: var(--lcd-light);
+      background: var(--ink);
+      box-shadow: 3px 3px 0 var(--button);
+    }
+
+    .run-card {
+      margin-top: auto;
+      padding: 12px;
+      border: 3px solid var(--ink);
+      background: #eee9c7;
+      box-shadow: 4px 4px 0 var(--shadow);
+    }
+
+    .run-card button {
+      width: 100%;
+      min-height: 38px;
+      border: 3px solid var(--ink);
+      color: #fff7d6;
+      background: var(--button);
+      box-shadow: inset -3px -3px 0 var(--button-dark);
+      font-family: var(--font-ui);
+      font-weight: 900;
+      text-transform: uppercase;
+      cursor: default;
+    }
+
+    .run-card small {
+      display: block;
+      margin-top: 10px;
+      color: var(--ink-soft);
+      font-family: var(--font-ui);
+      font-size: 10px;
+      line-height: 1.5;
+      text-transform: uppercase;
+    }
+
+    .content {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      background: #e6dfbb;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      min-height: 72px;
+      padding: 18px 28px;
+      border-bottom: 4px solid var(--ink);
+      background: #f0ebcc;
+    }
+
+    .topbar h1 {
+      margin: 0;
+      flex: 1;
+      color: var(--ink);
+      font-family: var(--font-ui);
+      font-size: 22px;
+      letter-spacing: -0.08em;
+      text-transform: uppercase;
+    }
+
+    .battery {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--good);
+      font-family: var(--font-ui);
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .battery::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--good);
+      box-shadow: 0 0 0 2px rgba(36, 91, 45, 0.25);
+    }
+
+    .main {
+      display: grid;
+      gap: 18px;
+      padding: 22px;
+      overflow: auto;
+    }
+
+    .screen {
+      position: relative;
+      overflow: hidden;
+      border: 4px solid var(--ink);
+      background:
+        repeating-linear-gradient(
+          to bottom,
+          rgba(24, 35, 19, 0.06) 0,
+          rgba(24, 35, 19, 0.06) 2px,
+          transparent 2px,
+          transparent 5px
+        ),
+        var(--lcd);
+      box-shadow: 6px 6px 0 var(--shadow);
+    }
+
+    .screen::after {
+      content: "";
+      pointer-events: none;
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.22), transparent 34%);
+      mix-blend-mode: screen;
+    }
+
+    .panel {
+      padding: 16px;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: end;
+      gap: 12px;
+      margin-bottom: 14px;
+      border-bottom: 3px double rgba(24, 35, 19, 0.65);
+      padding-bottom: 10px;
+    }
+
+    .panel-title {
+      margin: 0;
+      flex: 1;
+      font-family: var(--font-ui);
+      font-size: 14px;
+      letter-spacing: -0.03em;
+      text-transform: uppercase;
+    }
+
+    .panel-subtitle {
+      margin: 0;
+      color: var(--ink-soft);
+      font-family: var(--font-ui);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      min-height: 108px;
+      padding: 12px;
+      border: 3px solid var(--ink);
+      background: rgba(199, 216, 138, 0.62);
+      box-shadow: inset -4px -4px 0 rgba(24, 35, 19, 0.12);
+    }
+
+    .metric span {
+      display: block;
+      color: var(--ink-soft);
+      font-family: var(--font-ui);
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 12px;
+      font-family: var(--font-ui);
+      font-size: 28px;
+      line-height: 1;
+      letter-spacing: -0.08em;
+    }
+
+    .metric em {
+      display: block;
+      margin-top: 8px;
+      font-style: normal;
+      font-family: var(--font-ui);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+      gap: 18px;
+    }
+
+    .queue {
+      display: grid;
+      gap: 10px;
+    }
+
+    .queue-item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px;
+      border: 3px solid var(--ink);
+      background: rgba(199, 216, 138, 0.62);
+    }
+
+    .queue-item strong {
+      display: block;
+      font-family: var(--font-ui);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .queue-item span {
+      display: block;
+      margin-top: 4px;
+      color: var(--ink-soft);
+      font-family: var(--font-ui);
+      font-size: 10px;
+    }
+
+    .badge {
+      display: inline-flex;
+      min-width: 82px;
+      justify-content: center;
+      padding: 5px 8px;
+      border: 2px solid var(--ink);
+      color: #fff7d6;
+      background: var(--ink);
+      font-family: var(--font-ui);
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .badge.warn { background: var(--warn); }
+    .badge.danger { background: var(--danger); }
+    .badge.good { background: var(--good); }
+
+    .chart {
+      height: 180px;
+      margin-bottom: 14px;
+      border: 3px solid var(--ink);
+      background: rgba(199, 216, 138, 0.62);
+    }
+
+    .chart svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .ag-grid-host {
+      height: 360px;
+      border: 3px solid var(--ink);
+      --ag-background-color: rgba(199, 216, 138, 0.78);
+      --ag-foreground-color: var(--ink);
+      --ag-data-color: var(--ink);
+      --ag-secondary-foreground-color: var(--ink-soft);
+      --ag-header-background-color: var(--ink);
+      --ag-header-foreground-color: var(--lcd-light);
+      --ag-border-color: rgba(24, 35, 19, 0.55);
+      --ag-row-border-color: rgba(24, 35, 19, 0.35);
+      --ag-odd-row-background-color: rgba(109, 127, 61, 0.14);
+      --ag-row-hover-color: rgba(24, 35, 19, 0.16);
+      --ag-selected-row-background-color: rgba(123, 63, 115, 0.22);
+      --ag-font-family: var(--font-ui);
+      --ag-font-size: 12px;
+    }
+
+    .table-title {
+      color: var(--ink);
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .money { color: var(--ink); font-weight: 900; }
+    .delta-up { color: var(--danger); font-weight: 900; }
+    .delta-down { color: var(--good); font-weight: 900; }
+    .delta-flat { color: var(--ink-soft); font-weight: 900; }
+
+    @media (max-width: 980px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar {
+        position: static;
+        border-right: 0;
+        border-bottom: 4px solid var(--ink);
+      }
+      .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 620px) {
+      .topbar { align-items: start; flex-direction: column; }
+      .main { padding: 14px; }
+      .metrics { grid-template-columns: 1fr; }
+      .nav { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body x-data>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <strong>Pokemon Price</strong>
+        <span>Tracker Prototype</span>
+      </div>
+      <div>
+        <div class="nav-label">Menu</div>
+        <nav class="nav" aria-label="Preview navigation">
+          <a class="active" href="#"><span>▣</span> Dashboard</a>
+          <a href="#"><span>▤</span> Cards</a>
+          <a href="#"><span>△</span> Reprice</a>
+          <a href="#"><span>◇</span> Reports</a>
+        </nav>
+      </div>
+      <div class="run-card">
+        <button type="button">Run Scheduler</button>
+        <small>Preview-only screen. No API calls are made.</small>
+      </div>
+    </aside>
+
+    <section class="content">
+      <header class="topbar">
+        <h1>Portfolio Command Screen</h1>
+        <span class="battery">Sync Ready</span>
+      </header>
+
+      <main class="main">
+        <section class="screen panel">
+          <div class="panel-header">
+            <h2 class="panel-title">Live Store Signals</h2>
+            <p class="panel-subtitle">Minimal retro handheld skin concept</p>
+          </div>
+          <div class="metrics">
+            <article class="metric">
+              <span>Active listings</span>
+              <strong>42</strong>
+              <em>Tokopedia cards</em>
+            </article>
+            <article class="metric">
+              <span>Portfolio value</span>
+              <strong>Rp 39.2M</strong>
+              <em>Current store price</em>
+            </article>
+            <article class="metric">
+              <span>Market value</span>
+              <strong>Rp 41.6M</strong>
+              <em>Latest averages</em>
+            </article>
+            <article class="metric">
+              <span>Active alerts</span>
+              <strong>7</strong>
+              <em>Need review</em>
+            </article>
+          </div>
+        </section>
+
+        <section class="layout">
+          <article class="screen panel">
+            <div class="panel-header">
+              <h2 class="panel-title">Active Cards</h2>
+              <p class="panel-subtitle">AG Grid preview</p>
+            </div>
+            <div id="cards-grid" class="ag-grid-host ag-theme-quartz"></div>
+          </article>
+
+          <aside class="screen panel">
+            <div class="panel-header">
+              <h2 class="panel-title">Repricing Queue</h2>
+              <p class="panel-subtitle">Action stack</p>
+            </div>
+            <div class="queue">
+              <div class="queue-item">
+                <div>
+                  <strong>Mew Ex SAR Bubble Mew</strong>
+                  <span>Store price +18.4% above market</span>
+                </div>
+                <span class="badge danger">Lower</span>
+              </div>
+              <div class="queue-item">
+                <div>
+                  <strong>Pikachu KFC Promo PSA 10</strong>
+                  <span>Store price -12.7% below market</span>
+                </div>
+                <span class="badge warn">Raise</span>
+              </div>
+              <div class="queue-item">
+                <div>
+                  <strong>Bulbasaur Illustration Rare</strong>
+                  <span>Within pricing range</span>
+                </div>
+                <span class="badge good">Aligned</span>
+              </div>
+            </div>
+          </aside>
+        </section>
+
+        <section class="screen panel">
+          <div class="panel-header">
+            <h2 class="panel-title">Card Detail Preview</h2>
+            <p class="panel-subtitle">Price history module</p>
+          </div>
+          <div class="chart" aria-label="Price history chart preview">
+            <svg viewBox="0 0 720 180" role="img">
+              <line x1="26" y1="144" x2="694" y2="144" stroke="#182313" stroke-width="3"/>
+              <line x1="26" y1="24" x2="26" y2="144" stroke="#182313" stroke-width="3"/>
+              <polyline points="34,124 148,118 260,102 372,84 486,72 604,64 686,58" fill="none" stroke="#245b2d" stroke-width="6"/>
+              <polyline points="34,92 148,86 260,90 372,74 486,80 604,68 686,70" fill="none" stroke="#7b3f73" stroke-width="6"/>
+              <text x="36" y="20" fill="#182313" font-family="monospace" font-size="14" font-weight="900">TOKOPEDIA / MARKET AVG</text>
+            </svg>
+          </div>
+          <div id="history-grid" class="ag-grid-host ag-theme-quartz"></div>
+        </section>
+      </main>
+    </section>
+  </div>
+
+  <script>
+    function idr(value) {
+      return 'Rp ' + Math.round(value).toLocaleString('id-ID');
+    }
+
+    function moneyRenderer(params) {
+      if (params.value == null) return '-';
+      return '<span class="money">' + idr(params.value) + '</span>';
+    }
+
+    function deltaRenderer(params) {
+      var value = Number(params.value || 0);
+      var cls = value > 0 ? 'delta-up' : value < 0 ? 'delta-down' : 'delta-flat';
+      var prefix = value > 0 ? '+' : '';
+      return '<span class="' + cls + '">' + prefix + value.toFixed(1) + '%</span>';
+    }
+
+    function titleRenderer(params) {
+      return '<span class="table-title">' + String(params.value || '-') + '</span>';
+    }
+
+    function initGrid(id, rows, columns, height) {
+      var el = document.getElementById(id);
+      el.style.height = height || '360px';
+      if (!window.agGrid || typeof window.agGrid.createGrid !== 'function') {
+        el.textContent = 'AG Grid unavailable';
+        return;
+      }
+      var gridOptions = {
+        rowData: rows,
+        columnDefs: columns,
+        animateRows: true,
+        suppressCellFocus: true,
+        enableCellTextSelection: true,
+        domLayout: rows.length <= 6 ? 'autoHeight' : 'normal',
+        defaultColDef: {
+          flex: 1,
+          minWidth: 130,
+          sortable: true,
+          resizable: true,
+          filter: true
+        }
+      };
+      if (window.agGrid.themeQuartz && window.agGrid.colorSchemeDarkBlue) {
+        gridOptions.theme = window.agGrid.themeQuartz.withPart(window.agGrid.colorSchemeDarkBlue);
+      }
+      window.agGrid.createGrid(el, gridOptions);
+    }
+
+    initGrid(
+      'cards-grid',
+      [
+        { title: 'Mew Ex SAR Bubble Mew', price: 3200000, market: 2702000, delta: 18.4, alert: 'Lower price' },
+        { title: 'Pikachu KFC Promo PSA 10', price: 4200000, market: 4811000, delta: -12.7, alert: 'Raise price' },
+        { title: 'Bulbasaur Illustration Rare', price: 880000, market: 910000, delta: -3.3, alert: 'Aligned' },
+        { title: 'Gengar VMAX SGG', price: 1550000, market: 1510000, delta: 2.6, alert: 'Aligned' },
+        { title: 'Vaporeon Ex SAR', price: 1125000, market: 980000, delta: 14.8, alert: 'Lower price' }
+      ],
+      [
+        { field: 'title', headerName: 'Card', cellRenderer: titleRenderer, flex: 2.4 },
+        { field: 'price', headerName: 'Store Price', cellRenderer: moneyRenderer },
+        { field: 'market', headerName: 'Market Avg', cellRenderer: moneyRenderer },
+        { field: 'delta', headerName: 'Delta', cellRenderer: deltaRenderer },
+        { field: 'alert', headerName: 'Alert' }
+      ],
+      '360px'
+    );
+
+    initGrid(
+      'history-grid',
+      [
+        { date: '2026-06-04 09:49', price: 3200000, market: 2702000, delta: 18.4, alert: 'red' },
+        { date: '2026-06-03 09:40', price: 3180000, market: 2800000, delta: 13.6, alert: 'red' },
+        { date: '2026-06-02 09:42', price: 3050000, market: 2920000, delta: 4.5, alert: 'none' },
+        { date: '2026-06-01 09:38', price: 2990000, market: 2950000, delta: 1.4, alert: 'none' }
+      ],
+      [
+        { field: 'date', headerName: 'Snapshot', flex: 1.5 },
+        { field: 'price', headerName: 'Tokopedia', cellRenderer: moneyRenderer },
+        { field: 'market', headerName: 'Market Avg', cellRenderer: moneyRenderer },
+        { field: 'delta', headerName: 'Delta', cellRenderer: deltaRenderer },
+        { field: 'alert', headerName: 'Alert' }
+      ],
+      '240px'
+    );
+  </script>
+</body>
+</html>

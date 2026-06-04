@@ -4,8 +4,10 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pokemon_price_scheduler.web as web
+from pokemon_price_scheduler.infrastructure import history as history_store
 from pokemon_price_scheduler.history import close_connection
 from pokemon_price_scheduler.models import Product
 from pokemon_price_scheduler.ui_components import repricing_queue_fragment
@@ -142,11 +144,103 @@ class WebUiTests(unittest.TestCase):
             "Source Evidence",
         )
 
+    def test_card_detail_renders_price_history_metrics_table_and_chart(self):
+        history_rows = [
+            {
+                "card_id": self.active.slug,
+                "tokopedia_price": 760000,
+                "market_avg_price": 900000,
+                "delta_percent": -15.6,
+                "alert_status": "none",
+                "source_summary": "",
+                "created_at": "2026-06-04T07:35:45+00:00",
+            },
+            {
+                "card_id": self.active.slug,
+                "tokopedia_price": 750000,
+                "market_avg_price": 880000,
+                "delta_percent": -14.8,
+                "alert_status": "none",
+                "source_summary": "",
+                "created_at": "2026-06-03T07:35:45+00:00",
+            },
+        ]
+        reports_dir = Path(self.tmp.name) / "reports"
+        chart_dir = reports_dir / "charts"
+        chart_dir.mkdir(parents=True)
+        (chart_dir / f"{self.active.slug}.svg").write_text("<svg></svg>", encoding="utf-8")
+
+        with (
+            patch.object(web, "REPORTS_DIR", reports_dir),
+            patch.object(web, "price_history_for_slug", return_value=history_rows),
+            patch.object(web, "price_trend_for_slug", side_effect=[1.2, 3.4]),
+        ):
+            response = self.client.get(f"/api/cards/{self.active.slug}")
+
+        self.assertEqual(response.status_code, 200)
+        html_text = response.get_data(as_text=True)
+        self.assertIn("Latest Tokopedia price", html_text)
+        self.assertIn("Rp 760.000", html_text)
+        self.assertIn("Latest market avg", html_text)
+        self.assertIn("Rp 900.000", html_text)
+        self.assertIn("+1.2%", html_text)
+        self.assertIn("+3.4%", html_text)
+        self.assertIn("price-history-chart", html_text)
+        self.assertIn("data-rows", html_text)
+
     def test_repricing_queue_route_uses_panel(self):
         self.assert_fragment_has(
             "/api/repricing",
             "Repricing Queue",
         )
+
+    def test_repricing_queue_filters_to_active_slugs(self):
+        products = [
+            {
+                "title": "Active Card",
+                "slug": "active-card",
+                "own_price_idr": 100000,
+                "global_average_idr": 120000,
+                "price_delta_percent": -16.7,
+            },
+            {
+                "title": "Test Card",
+                "slug": "test-slug",
+                "own_price_idr": 500000,
+                "global_average_idr": 400000,
+                "price_delta_percent": 25.0,
+            },
+        ]
+        with patch.object(history_store, "get_all_products_with_trend", return_value=products):
+            rows = history_store.repricing_queue({"active-card"})
+
+        self.assertEqual([row["slug"] for row in rows], ["active-card"])
+
+    def test_repricing_queue_route_uses_active_tokopedia_listings(self):
+        captured = {}
+
+        def fake_repricing_queue(active_slugs):
+            captured["active_slugs"] = active_slugs
+            return [
+                {
+                    "title": "Pokemon Japanese PSA 10",
+                    "slug": self.active.slug,
+                    "tokopedia_price": 750000,
+                    "market_avg_price": 900000,
+                    "delta_percent": -16.7,
+                    "suggested_quick_sale": 828000,
+                    "suggested_normal": 882000,
+                    "suggested_max_profit": 945000,
+                    "recommended_action": "Raise price",
+                }
+            ]
+
+        with patch.object(web, "repricing_queue", side_effect=fake_repricing_queue):
+            response = self.client.get("/api/repricing")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(captured["active_slugs"], {self.active.slug})
+        self.assertNotIn(self.sold.slug, captured["active_slugs"])
 
     def test_repricing_queue_fragment_renders_actions_and_suggestions(self):
         html_text = repricing_queue_fragment(
@@ -229,13 +323,26 @@ class WebUiTests(unittest.TestCase):
             self.assertIn("autoSizeStrategy", html_text)
             self.assertIn("minWidth: 140", html_text)
             self.assertIn("resizable: true", html_text)
-            self.assertIn("--ag-foreground-color: #e5e7eb", html_text)
+            self.assertIn("--ag-foreground-color: #38bdf8", html_text)
             self.assertIn("--ag-background-color: #111827", html_text)
             self.assertIn("--ag-header-background-color: #1f2937", html_text)
             self.assertIn("--ag-row-hover-color: #243244", html_text)
             self.assertIn(".cards-page", html_text)
             self.assertIn("height: calc(100vh - 260px)", html_text)
             self.assertIn("max-width: none", html_text)
+        finally:
+            response.close()
+
+    def test_retro_preview_static_page_loads(self):
+        response = self.client.get("/retro-preview.html")
+        try:
+            self.assertEqual(response.status_code, 200)
+            html_text = response.get_data(as_text=True)
+            self.assertIn("Retro Preview - Pokemon Price Tracker", html_text)
+            self.assertIn("/vendor/ag-grid/ag-grid.css", html_text)
+            self.assertIn("/alpine.min.js", html_text)
+            self.assertIn("Minimal retro handheld skin concept", html_text)
+            self.assertIn("Preview-only screen. No API calls are made.", html_text)
         finally:
             response.close()
 
