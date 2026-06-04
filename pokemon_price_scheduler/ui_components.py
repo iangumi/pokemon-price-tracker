@@ -144,6 +144,20 @@ def format_trend(value: float | None) -> str:
     return f'<span class="trend trend--{direction}">{value:+.1f}%</span>'
 
 
+def format_money_or_missing(value: int | None) -> str:
+    return "Insufficient market data" if value is None else idr(value)
+
+
+def action_badge(action: str) -> str:
+    tones = {
+        "Lower price": "danger",
+        "Raise price": "warning",
+        "Missing market data": "muted",
+        "Aligned": "success",
+    }
+    return badge(action, tones.get(action, "neutral"))
+
+
 def dashboard_fragment(
     *,
     total_listings: int,
@@ -254,7 +268,16 @@ def card_detail_fragment(
     info: dict[str, Any],
     observations: list[dict[str, Any]],
     chart_exists: bool,
+    price_history: list[dict[str, Any]] | None = None,
+    trend_7d: float | None = None,
+    trend_30d: float | None = None,
+    suggested: dict[str, int | None] | None = None,
 ) -> str:
+    price_history = price_history or []
+    suggested = suggested or {"quick_sale": None, "normal": None, "max_profit": None}
+    latest_snapshot = price_history[0] if price_history else {}
+    latest_tokopedia_price = latest_snapshot.get("tokopedia_price", product.own_price_idr)
+    latest_market_avg = latest_snapshot.get("market_avg_price", info.get("global_average_idr"))
     is_sold = product.status == "sold"
     alert = info.get("alert_level", "none")
     alert_label = info.get("alert_label", "")
@@ -282,9 +305,11 @@ def card_detail_fragment(
 
     metrics = metric_grid(
         [
-            metric_card("Your price", idr(product.own_price_idr)),
-            metric_card("Global avg", idr(info.get("global_average_idr"))),
+            metric_card("Latest Tokopedia price", idr(latest_tokopedia_price)),
+            metric_card("Latest market avg", idr(latest_market_avg)),
             metric_card("Delta", pct(info.get("price_delta_percent"))),
+            metric_card("7 day market trend", pct(trend_7d)),
+            metric_card("30 day market trend", pct(trend_30d)),
             metric_card("Status", badge("Sold", "danger") if is_sold else alert_badge(alert, alert_label)),
         ]
     )
@@ -296,7 +321,110 @@ def card_detail_fragment(
             f'<img class="chart-image" src="/charts/{h(product.slug)}.svg" alt="Price chart for {h(product.title)}">',
         )
 
-    return toolbar(*actions) + search_editor + metrics + identity_panel(product) + chart + source_evidence_panel(observations)
+    return (
+        toolbar(*actions)
+        + search_editor
+        + metrics
+        + suggested_price_panel(suggested)
+        + identity_panel(product)
+        + chart
+        + price_history_panel(price_history)
+        + source_evidence_panel(observations)
+    )
+
+
+def suggested_price_panel(suggested: dict[str, int | None]) -> str:
+    return panel(
+        "Suggested Tokopedia Price",
+        metric_grid(
+            [
+                metric_card("Quick sale", format_money_or_missing(suggested.get("quick_sale")), "Market average x 0.92"),
+                metric_card("Normal", format_money_or_missing(suggested.get("normal")), "Market average x 0.98"),
+                metric_card("Max profit", format_money_or_missing(suggested.get("max_profit")), "Market average x 1.05"),
+            ]
+        ),
+        subtitle="Suggestions are hidden when market average is unavailable.",
+    )
+
+
+def price_history_panel(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return panel("Price History", empty_state("No price history yet", "Run the scheduler to create price snapshots."))
+    newest_first = rows[:30]
+    table_rows = []
+    chart_points = list(reversed(newest_first[:30]))
+    for row in newest_first:
+        table_rows.append(
+            {
+                "created_at": row["created_at"][:19].replace("T", " "),
+                "tokopedia_price": row.get("tokopedia_price"),
+                "market_avg_price": row.get("market_avg_price"),
+                "delta_percent": row.get("delta_percent"),
+                "alert_status": row.get("alert_status", "none"),
+            }
+        )
+    history_table = data_table(
+        ["created_at", "tokopedia_price", "market_avg_price", "delta_percent", "alert_status"],
+        table_rows,
+        class_name="data-table--compact",
+        columns=[
+            {"field": "created_at", "headerName": "Snapshot", "flex": 2, "minWidth": 180},
+            {"field": "tokopedia_price", "headerName": "Tokopedia Price", "cellRenderer": "moneyValue", "flex": 1, "minWidth": 160, "type": "numericColumn"},
+            {"field": "market_avg_price", "headerName": "Market Avg", "cellRenderer": "moneyValue", "flex": 1, "minWidth": 150, "type": "numericColumn"},
+            {"field": "delta_percent", "headerName": "Delta", "cellRenderer": "percentValue", "flex": 1, "minWidth": 120, "type": "numericColumn"},
+            {"field": "alert_status", "headerName": "Alert", "cellRenderer": "alertBadge", "flex": 1, "minWidth": 130},
+        ],
+    )
+    chart = price_history_chart(chart_points)
+    return panel(
+        "Price History",
+        chart + history_table,
+        subtitle="One snapshot is saved for each card after every scheduler run.",
+    )
+
+
+def price_history_chart(rows: list[dict[str, Any]]) -> str:
+    points = [row for row in rows if row.get("market_avg_price") is not None or row.get("tokopedia_price") is not None]
+    if len(points) < 2:
+        return ""
+    width = 720
+    height = 180
+    pad = 18
+    values = []
+    for row in points:
+        values.append(row.get("tokopedia_price"))
+        if row.get("market_avg_price") is not None:
+            values.append(row.get("market_avg_price"))
+    values = [int(value) for value in values if value is not None]
+    if not values:
+        return ""
+    low = min(values)
+    high = max(values)
+    span = max(high - low, 1)
+
+    def coords(key: str) -> str:
+        coords_list = []
+        for index, row in enumerate(points):
+            value = row.get(key)
+            if value is None:
+                continue
+            x = pad + (index / max(len(points) - 1, 1)) * (width - pad * 2)
+            y = height - pad - ((int(value) - low) / span) * (height - pad * 2)
+            coords_list.append(f"{x:.1f},{y:.1f}")
+        return " ".join(coords_list)
+
+    own_points = coords("tokopedia_price")
+    market_points = coords("market_avg_price")
+    return f"""
+    <div class="chart-image price-history-chart">
+      <svg viewBox="0 0 {width} {height}" role="img" aria-label="Price history line chart">
+        <line x1="{pad}" y1="{height - pad}" x2="{width - pad}" y2="{height - pad}" stroke="#33404c" />
+        <polyline points="{h(own_points)}" fill="none" stroke="#93c5fd" stroke-width="3" />
+        <polyline points="{h(market_points)}" fill="none" stroke="#22c55e" stroke-width="3" />
+        <text x="{pad}" y="16" fill="#93c5fd" font-size="12">Tokopedia</text>
+        <text x="110" y="16" fill="#22c55e" font-size="12">Market avg</text>
+      </svg>
+    </div>"""
 
 
 def source_evidence_panel(observations: list[dict[str, Any]]) -> str:
@@ -385,4 +513,91 @@ def opportunities_fragment(products: list[dict[str, Any]]) -> str:
             ],
         ),
         subtitle="First-pass candidates, not automatic buy recommendations.",
+    )
+
+
+def repricing_queue_fragment(rows: list[dict[str, Any]]) -> str:
+    summary = {
+        "Lower price": 0,
+        "Raise price": 0,
+        "Missing market data": 0,
+        "Aligned": 0,
+    }
+    if not rows:
+        return panel(
+            "Repricing Queue",
+            empty_state("No repricing data yet", "Run the scheduler to populate the repricing queue."),
+        )
+    table_rows = []
+    for row in rows:
+        table_rows.append(
+            {
+                "title": row["title"],
+                "slug": row["slug"],
+                "tokopedia_price": row.get("tokopedia_price"),
+                "market_avg_price": row.get("market_avg_price"),
+                "delta_percent": row.get("delta_percent"),
+                "suggested_quick_sale": row.get("suggested_quick_sale"),
+                "suggested_normal": row.get("suggested_normal"),
+                "suggested_max_profit": row.get("suggested_max_profit"),
+                "recommended_action": row.get("recommended_action", "Aligned"),
+            }
+        )
+        action = row.get("recommended_action", "Aligned")
+        summary[action] = summary.get(action, 0) + 1
+    summary_html = metric_grid(
+        [
+            metric_card("Need price decrease", f"{summary['Lower price']:,}", "Tokopedia price is above market by more than 10%", "danger" if summary["Lower price"] else "neutral"),
+            metric_card("Need price increase", f"{summary['Raise price']:,}", "Tokopedia price is below market by more than 10%", "warning" if summary["Raise price"] else "neutral"),
+            metric_card("Missing market data", f"{summary['Missing market data']:,}", "No market average is available", "muted"),
+            metric_card("Aligned", f"{summary['Aligned']:,}", "Within +/-10% of market average", "success" if summary["Aligned"] else "neutral"),
+        ]
+    )
+    controls_html = """
+    <section class="repricing-controls">
+      <div class="control-group">
+        <span class="control-label">Filter</span>
+        <button class="btn btn--secondary" onclick="filterRepricing('')">All</button>
+        <button class="btn btn--secondary" onclick="filterRepricing('Lower price')">Lower price</button>
+        <button class="btn btn--secondary" onclick="filterRepricing('Raise price')">Raise price</button>
+        <button class="btn btn--secondary" onclick="filterRepricing('Missing market data')">Missing market data</button>
+        <button class="btn btn--secondary" onclick="filterRepricing('Aligned')">Aligned</button>
+      </div>
+      <div class="control-group">
+        <span class="control-label">Sort</span>
+        <button class="btn btn--secondary" onclick="sortRepricing('delta_desc')">Highest delta</button>
+        <button class="btn btn--secondary" onclick="sortRepricing('delta_asc')">Lowest delta</button>
+        <button class="btn btn--secondary" onclick="sortRepricing('tokopedia_desc')">Highest card price</button>
+        <button class="btn btn--secondary" onclick="sortRepricing('market_desc')">Highest market price</button>
+      </div>
+    </section>"""
+    return panel(
+        "Repricing Queue",
+        summary_html
+        + controls_html
+        + data_table(
+            [
+                "title",
+                "tokopedia_price",
+                "market_avg_price",
+                "delta_percent",
+                "suggested_quick_sale",
+                "suggested_normal",
+                "suggested_max_profit",
+                "recommended_action",
+            ],
+            table_rows,
+            table_id="repricing-table",
+            columns=[
+                {"field": "title", "headerName": "Card", "cellRenderer": "cardLink", "flex": 3, "minWidth": 360, "alwaysRender": True},
+                {"field": "tokopedia_price", "headerName": "Tokopedia Price", "cellRenderer": "moneyValue", "flex": 1, "minWidth": 160, "type": "numericColumn", "alwaysRender": True},
+                {"field": "market_avg_price", "headerName": "Market Avg", "cellRenderer": "moneyValue", "flex": 1, "minWidth": 150, "type": "numericColumn", "alwaysRender": True},
+                {"field": "delta_percent", "headerName": "Delta", "cellRenderer": "percentValue", "flex": 1, "minWidth": 120, "type": "numericColumn", "alwaysRender": True},
+                {"field": "suggested_quick_sale", "headerName": "Quick Sale", "cellRenderer": "suggestedMoney", "flex": 1, "minWidth": 170, "type": "numericColumn", "alwaysRender": True},
+                {"field": "suggested_normal", "headerName": "Normal", "cellRenderer": "suggestedMoney", "flex": 1, "minWidth": 170, "type": "numericColumn", "alwaysRender": True},
+                {"field": "suggested_max_profit", "headerName": "Max Profit", "cellRenderer": "suggestedMoney", "flex": 1, "minWidth": 170, "type": "numericColumn", "alwaysRender": True},
+                {"field": "recommended_action", "headerName": "Recommended Action", "cellRenderer": "actionBadge", "flex": 1, "minWidth": 170, "alwaysRender": True},
+            ],
+        ),
+        subtitle="Cards more than 10% above or below market average are queued for action.",
     )

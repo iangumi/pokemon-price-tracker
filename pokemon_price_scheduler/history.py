@@ -8,6 +8,11 @@ from .infrastructure.history import (
     get_observations_for_slug,
     history_for_slug,
     get_all_products_with_trend,
+    price_history_for_slug,
+    price_trend_for_slug,
+    repricing_queue,
+    suggested_prices,
+    recommended_action,
 )
 
 __all__ = [
@@ -18,4 +23,9 @@ __all__ = [
     "get_observations_for_slug",
     "history_for_slug",
     "get_all_products_with_trend",
+    "price_history_for_slug",
+    "price_trend_for_slug",
+    "repricing_queue",
+    "suggested_prices",
+    "recommended_action",
 ]

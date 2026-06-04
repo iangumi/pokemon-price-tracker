@@ -8,6 +8,7 @@ from pathlib import Path
 import pokemon_price_scheduler.web as web
 from pokemon_price_scheduler.history import close_connection
 from pokemon_price_scheduler.models import Product
+from pokemon_price_scheduler.ui_components import repricing_queue_fragment
 
 
 class WebUiTests(unittest.TestCase):
@@ -133,9 +134,58 @@ class WebUiTests(unittest.TestCase):
             f"/api/cards/{self.active.slug}",
             "toolbar",
             "field-row",
+            "Latest Tokopedia price",
+            "Latest market avg",
+            "Suggested Tokopedia Price",
+            "Price History",
             "Card Identity",
             "Source Evidence",
         )
+
+    def test_repricing_queue_route_uses_panel(self):
+        self.assert_fragment_has(
+            "/api/repricing",
+            "Repricing Queue",
+        )
+
+    def test_repricing_queue_fragment_renders_actions_and_suggestions(self):
+        html_text = repricing_queue_fragment(
+            [
+                {
+                    "title": "Pokemon Japanese PSA 10",
+                    "slug": "pokemon-japanese-psa-10",
+                    "tokopedia_price": 750000,
+                    "market_avg_price": 900000,
+                    "delta_percent": -16.7,
+                    "suggested_quick_sale": 828000,
+                    "suggested_normal": 882000,
+                    "suggested_max_profit": 945000,
+                    "recommended_action": "Raise price",
+                },
+                {
+                    "title": "No Market Card",
+                    "slug": "no-market-card",
+                    "tokopedia_price": 500000,
+                    "market_avg_price": None,
+                    "delta_percent": None,
+                    "suggested_quick_sale": None,
+                    "suggested_normal": None,
+                    "suggested_max_profit": None,
+                    "recommended_action": "Missing market data",
+                },
+            ]
+        )
+        self.assertIn("Repricing Queue", html_text)
+        self.assertIn("Need price decrease", html_text)
+        self.assertIn("Need price increase", html_text)
+        self.assertIn("Filter", html_text)
+        self.assertIn("Sort", html_text)
+        self.assertIn("filterRepricing('Lower price')", html_text)
+        self.assertIn("sortRepricing('delta_desc')", html_text)
+        self.assertIn("Highest card price", html_text)
+        self.assertIn("actionBadge", html_text)
+        self.assertIn("suggestedMoney", html_text)
+        self.assertIn("Missing market data", html_text)
 
     def test_sold_cards_use_product_card_component(self):
         self.assert_fragment_has(
@@ -170,6 +220,12 @@ class WebUiTests(unittest.TestCase):
             self.assertIn('/vendor/ag-grid/ag-theme-quartz.css', html_text)
             self.assertIn("colorSchemeDarkBlue", html_text)
             self.assertIn("themeQuartz.withPart", html_text)
+            self.assertIn("Repricing Queue", html_text)
+            self.assertIn("actionBadge", html_text)
+            self.assertIn("suggestedMoney", html_text)
+            self.assertIn("filterRepricing", html_text)
+            self.assertIn("sortRepricing", html_text)
+            self.assertIn("_agGridById", html_text)
             self.assertIn("autoSizeStrategy", html_text)
             self.assertIn("minWidth: 140", html_text)
             self.assertIn("resizable: true", html_text)

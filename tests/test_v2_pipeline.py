@@ -97,11 +97,26 @@ class V2PipelineTests(unittest.TestCase):
 
             with closing(store.connect()) as conn:
                 fetch_count = conn.execute("SELECT COUNT(*) FROM source_fetches").fetchone()[0]
+                history_count = conn.execute("SELECT COUNT(*) FROM price_history").fetchone()[0]
+                snapshot = conn.execute(
+                    """
+                    SELECT card_id, tokopedia_price, market_avg_price, delta_percent,
+                           alert_status, source_summary
+                    FROM price_history
+                    """
+                ).fetchone()
                 decisions = conn.execute(
                     "SELECT price_idr, included, reason FROM analysis_decisions ORDER BY price_idr"
                 ).fetchall()
 
             self.assertEqual(fetch_count, 1)
+            self.assertEqual(history_count, 1)
+            self.assertEqual(snapshot[0], "pokemon-japanese-psa-10")
+            self.assertEqual(snapshot[1], 750000)
+            self.assertEqual(snapshot[2], 900000)
+            self.assertIsNotNone(snapshot[3])
+            self.assertEqual(snapshot[4], "none")
+            self.assertIn("tokopedia competitors", snapshot[5])
             self.assertEqual(decisions[0], (16000, 0, "below_comparable_min_ratio"))
             self.assertEqual(decisions[1], (900000, 1, "included"))
 

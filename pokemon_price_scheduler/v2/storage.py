@@ -184,6 +184,7 @@ class TraceStore:
                                 obs.relevance_score,
                             ),
                         )
+                _insert_price_snapshot(conn, run_id, result_id, analysis)
             conn.commit()
 
     def latest_run_id(self) -> int | None:
@@ -312,6 +313,18 @@ def init_db(conn: sqlite3.Connection) -> None:
             is_legit INTEGER NOT NULL,
             relevance_score REAL DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS price_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER REFERENCES runs(id),
+            product_result_id INTEGER REFERENCES product_results(id),
+            card_id TEXT NOT NULL,
+            tokopedia_price INTEGER NOT NULL,
+            market_avg_price INTEGER,
+            delta_percent REAL,
+            alert_status TEXT DEFAULT 'none',
+            source_summary TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS analysis_decisions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             run_id INTEGER NOT NULL REFERENCES runs(id),
@@ -329,6 +342,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             parser_strategy TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_product_results_slug ON product_results(slug);
+        CREATE INDEX IF NOT EXISTS idx_price_history_card_created ON price_history(card_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_run_events_run ON run_events(run_id);
         CREATE INDEX IF NOT EXISTS idx_source_fetches_run ON source_fetches(run_id);
         CREATE INDEX IF NOT EXISTS idx_analysis_decisions_run_slug ON analysis_decisions(run_id, product_slug);
@@ -363,3 +377,44 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
         for column, definition in columns.items():
             if column not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _insert_price_snapshot(
+    conn: sqlite3.Connection,
+    run_id: int,
+    result_id: int,
+    analysis: ProductAnalysis,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO price_history(
+            run_id, product_result_id, card_id, tokopedia_price, market_avg_price,
+            delta_percent, alert_status, source_summary, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            run_id,
+            result_id,
+            analysis.product.slug,
+            analysis.product.own_price_idr,
+            analysis.global_average_idr,
+            analysis.price_delta_percent,
+            analysis.alert_level,
+            _source_summary(analysis),
+            analysis.run_at.isoformat(),
+        ),
+    )
+
+
+def _source_summary(analysis: ProductAnalysis) -> str:
+    sources = []
+    for result in analysis.source_results:
+        sources.append(
+            {
+                "source": result.source.name,
+                "kind": result.source.kind,
+                "observations": len(result.observations),
+                "warnings": result.warnings,
+            }
+        )
+    return json.dumps(sources, ensure_ascii=False, sort_keys=True)

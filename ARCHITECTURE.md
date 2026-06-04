@@ -11,13 +11,13 @@ A daily/on-demand **Pokemon card price checker** for Tokopedia store listings. I
 | Layer | Technology |
 |---|---|
 | **Web Framework** | Flask 3.x |
-| **Frontend** | Single HTML SPA — Alpine.js + HTMX + jQuery + DataTables (all in `static/index.html`) |
+| **Frontend** | Single HTML SPA — Alpine.js + AG Grid Community (all in `static/index.html`) |
 | **Templates** | Jinja2 (used for static report generation only) |
 | **Persistence** | SQLite (`data/price_history.sqlite3`) |
-| **HTTP Client** | stdlib `urllib` with gzip decompression and retry logic |
+| **HTTP Client** | stdlib `urllib` with gzip decompression/retry logic, plus optional Scrapling backend |
 | **AI Summaries** | MiniMax API (OpenAI-compatible endpoint) |
-| **CLI** | `argparse` with subcommands: `run`, `sync-store`, `seed-config` |
-| **Testing** | pytest |
+| **CLI** | `argparse` with subcommands: `run`, `sync-store`, `seed-config`, `validate-config`, `inspect-run`, `migrate-snkrdunk-urls` |
+| **Testing** | `unittest` tests, pytest-compatible |
 
 ---
 
@@ -44,6 +44,9 @@ pokemon_price_scheduler/
 │   ├── reports.py              # ReportEngine + 6 concrete Report subclasses
 │   └── ai.py                  # MiniMaxClient, attach_ai_summaries()
 │
+├── v2/                           # Newer pipeline trace storage and run persistence
+│   └── storage.py              # TraceStore, schema migration, run result persistence
+│
 ├── templates/                    # Jinja2 templates (static report generation only)
 │   ├── base.html               # Shared shell with sidebar, topbar, CSS design tokens
 │   ├── dashboard.html
@@ -52,9 +55,11 @@ pokemon_price_scheduler/
 │   └── renderers.py           # render_dashboard(), render_card_detail(), render_opportunities()
 │
 ├── static/
-│   └── index.html             # **Served by Flask** — SPA at repo root `static/index.html` (not `pokemon_price_scheduler/static/`)
+│   ├── index.html             # **Served by Flask** — live SPA shell
+│   └── vendor/ag-grid/        # Vendored AG Grid Community runtime and theme assets
 │
 ├── cli.py                       # CLI: run, sync-store, seed-config
+├── ui_components.py             # Shared live-app HTML/AG Grid component builders
 ├── web.py                       # Flask app (serves SPA + API endpoints)
 ├── config.py                    # JSON config load/save for products.json
 └── store_sync.py               # get_active_store_product_urls() — detects sold products
@@ -73,6 +78,19 @@ pokemon_price_scheduler/
 ### Thread-Local SQLite Connections
 
 `infrastructure/history.py` uses `threading.local()` so each thread gets its own `sqlite3.Connection`. This is safe for the Flask dev server's threaded mode and the background scheduler thread.
+
+### Run Trace and Price History
+
+SQLite stores both run trace data and daily workflow data:
+
+- `runs` - scheduler executions
+- `product_results` - latest per-product analysis rows for each run
+- `observations` - scraped source listings
+- `source_fetches` - raw fetch status and source-level diagnostics
+- `analysis_decisions` - filtering and scoring decisions
+- `price_history` - one price snapshot per card after each scheduler run
+
+`price_history` records `card_id`, `tokopedia_price`, `market_avg_price`, `delta_percent`, `alert_status`, `source_summary`, and `created_at`. It also stores run/result references where available. Snapshots are inserted from both the legacy `save_run()` path and the v2 `TraceStore.save_results()` path, so scheduler runs update history regardless of which persistence path is used.
 
 ### Background Scheduler via Subprocess + SSE
 
@@ -159,10 +177,11 @@ Main output of a run. Fields: `product`, `run_at`, `source_results[]`, `market_m
 | Route | Method | Purpose |
 |---|---|---|
 | `/` | GET | Serves `static/index.html` |
-| `/cards`, `/cards/<slug>`, `/opportunities`, `/soldcards` | GET | SPA routing — all serve `static/index.html` |
+| `/cards`, `/cards/<slug>`, `/repricing`, `/opportunities`, `/soldcards` | GET | SPA routing — all serve `static/index.html` |
 | `/api/dashboard` | GET | Dashboard table HTML fragment |
 | `/api/cards` | GET | Cards grid HTML fragment |
 | `/api/cards/<slug>` | GET | Card detail HTML fragment |
+| `/api/repricing` | GET | Repricing Queue HTML fragment |
 | `/api/cards/<slug>/revert-sold` | PUT | Revert sold card to active |
 | `/api/cards/<slug>/update-price` | PUT | Fetch current Tokopedia listing price |
 | `/api/opportunities` | GET | Opportunities table HTML fragment |
@@ -180,12 +199,30 @@ Main output of a run. Fields: `product`, `run_at`, `source_results[]`, `market_m
 
 ---
 
+## Repricing Queue
+
+The daily repricing workflow is exposed at `/repricing` and backed by `history.repricing_queue()`. It classifies cards using the latest Tokopedia and market average prices:
+
+- `Lower price` when delta is above +10%
+- `Raise price` when delta is below -10%
+- `Missing market data` when market average is unavailable
+- `Aligned` when delta is within +/-10%
+
+Suggested prices are calculated from market average:
+
+- Quick Sale = `market_avg_price * 0.92`
+- Normal = `market_avg_price * 0.98`
+- Max Profit = `market_avg_price * 1.05`
+
+The page includes summary counts, action filters, delta/price sorting, and AG Grid-native column sizing.
+
 ## SPA Architecture (`static/index.html`)
 
-Single 929-line HTML file with:
+Single HTML file with:
 - **`app()`** Alpine.js component: manages `currentPage`, `pageTitle`, `pageMeta`, `pageContent`, `schedulerState`, `toasts[]`
-- **`navigateTo(path)`**: fetches `/api/*` HTML fragments, renders into `#content`, reinitializes DataTables
-- **DataTables**: initialized on dashboard with custom `createdRow` callback for alert badge rendering
+- **`navigateTo(path)`**: fetches `/api/*` HTML fragments, renders into `#content`, initializes AG Grid mounts
+- **AG Grid adapter**: reads `data-columns` and `data-rows` from generated fragments, creates grids, and stores APIs in `window._agGridById`
+- **Repricing controls**: `filterRepricing(action)` and `sortRepricing(mode)` call AG Grid filter/sort APIs for the daily queue
 - **EventSource (`/run/status`)**: SSE client for live scheduler progress
 - **Modals**: Add Card modal (URL + keyword inputs)
 - **Toast system**: `showToast(message, type)` with success/error/info variants
@@ -198,7 +235,7 @@ Single 929-line HTML file with:
 ### `run`
 Full pipeline: detect sold products → filter by `min_price_idr` → scrape all sources → optionally add AI summaries → save to SQLite → write all reports.
 
-Key flags: `--config`, `--limit`, `--ai-summary`, `--min-price-idr`
+Key flags: `--config`, `--limit`, `--ai-summary`, `--min-price-idr`, `--fetch-backend`, `--no-sold-detection`
 
 ### `sync-store`
 Scrapes a Tokopedia store page to extract active product URLs. Writes `data/store_products.json`. Used to detect which products have been marked sold.
@@ -249,3 +286,4 @@ Reads `store_products.json`, runs `parse_card_identity()` on each title to gener
 4. **Price parsing is fragile** — Tokopedia HTML structure changes often. Keep extraction logic isolated in `infrastructure/scrapers.py` so it can be updated without touching analysis logic.
 5. **The SPA is a single file** — `static/index.html` is the frontend. Don't split it into multiple static files; the Alpine.js component architecture handles modularity within that one file.
 6. **Configurable thresholds** — alert levels and outlier rejection are tunable via `comparable_min/max_ratio_to_own` in the product config, not hardcoded.
+7. **AG Grid classes are reserved** — avoid custom class names starting with `ag-`. AG Grid theme CSS targets broad `ag-*` selectors, so app wrappers should use names like `grid-shell`, `cards-data-grid`, and `ag-grid-host`.

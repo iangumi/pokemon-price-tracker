@@ -10,7 +10,14 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, request
 
-from .history import get_all_products_with_trend, get_observations_for_slug, history_for_slug
+from .history import (
+    get_all_products_with_trend,
+    get_observations_for_slug,
+    price_history_for_slug,
+    price_trend_for_slug,
+    repricing_queue,
+    suggested_prices,
+)
 from .models import Product, Source, utc_now
 from .reports import idr, pct
 from .ui_components import (
@@ -18,6 +25,7 @@ from .ui_components import (
     card_detail_fragment,
     dashboard_fragment,
     opportunities_fragment,
+    repricing_queue_fragment,
     sold_cards_fragment,
 )
 from .v2.storage import TraceStore
@@ -82,6 +90,11 @@ def card_detail_page(slug: str):
 
 @app.route("/opportunities")
 def opportunities_page():
+    return app.send_static_file("index.html")
+
+
+@app.route("/repricing")
+def repricing_page():
     return app.send_static_file("index.html")
 
 
@@ -151,12 +164,19 @@ def api_card_detail(slug: str):
     products_with_data = get_all_products_with_trend()
     info = next((p for p in products_with_data if p['slug'] == slug), {})
     observations = get_observations_for_slug(slug)
+    price_history = price_history_for_slug(slug)
+    latest_snapshot = price_history[0] if price_history else {}
+    market_avg = latest_snapshot.get("market_avg_price", info.get("global_average_idr"))
     chart_exists = (REPORTS_DIR / "charts" / f"{slug}.svg").exists()
     html = card_detail_fragment(
         product=product,
         info=info,
         observations=observations,
         chart_exists=chart_exists,
+        price_history=price_history,
+        trend_7d=price_trend_for_slug(slug, 7),
+        trend_30d=price_trend_for_slug(slug, 30),
+        suggested=suggested_prices(market_avg),
     )
     return html, 200, {"Content-Type": "text/html"}
 
@@ -243,6 +263,12 @@ def api_opportunities():
     """Return opportunities table as HTML fragment."""
     products_with_data = get_all_products_with_trend()
     return opportunities_fragment(products_with_data), 200, {"Content-Type": "text/html"}
+
+
+@app.route("/api/repricing")
+def api_repricing():
+    """Return repricing queue table as HTML fragment."""
+    return repricing_queue_fragment(repricing_queue()), 200, {"Content-Type": "text/html"}
 
 
 # ─── Actions ─────────────────────────────────────────────────────────────────

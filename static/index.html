@@ -593,6 +593,26 @@
       gap: 10px;
       margin-bottom: var(--sp-2);
     }
+    .repricing-controls {
+      display: grid;
+      gap: 12px;
+      margin-bottom: var(--sp-2);
+    }
+    .control-group {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+    .control-label {
+      color: var(--muted);
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .09em;
+      min-width: 52px;
+      text-transform: uppercase;
+    }
     .btn {
       border: 1px solid rgba(34, 211, 238, 0.32);
       box-shadow: 0 0 0 1px rgba(255,255,255,0.02) inset;
@@ -1000,6 +1020,9 @@
       <a href="/opportunities" :class="{ 'active': currentPage === 'ops' }" @click.prevent="navigateTo('/opportunities')">
         <span>◇</span> Opportunities
       </a>
+      <a href="/repricing" :class="{ 'active': currentPage === 'repricing' }" @click.prevent="navigateTo('/repricing')">
+        <span>△</span> Repricing Queue
+      </a>
       <a href="/soldcards" :class="{ 'active': currentPage === 'sold' }" @click.prevent="navigateTo('/soldcards')">
         <span>◻</span> Sold Cards
       </a>
@@ -1035,6 +1058,7 @@
 
   <script>
     window._agGrids = [];
+    window._agGridById = {};
 
     function escapeHtml(value) {
       return String(value == null ? '' : value)
@@ -1100,10 +1124,23 @@
         var used = params.data && params.data.used;
         return badgeHtml(params.value || (used ? 'Used' : 'Filtered'), used ? 'success' : 'muted');
       },
+      actionBadge: function(params) {
+        var action = params.value || 'Aligned';
+        if (action === 'Lower price') return badgeHtml(action, 'danger');
+        if (action === 'Raise price') return badgeHtml(action, 'warning');
+        if (action === 'Missing market data') return badgeHtml(action, 'muted');
+        return badgeHtml(action, 'success');
+      },
       moneyValue: function(params) {
         var value = idr(params.value);
         var className = value === '-' ? 'table-muted' : 'table-money';
         return '<span class="' + className + '">' + escapeHtml(value) + '</span>';
+      },
+      suggestedMoney: function(params) {
+        if (params.value == null || params.value === '') {
+          return '<span class="table-muted">Insufficient market data</span>';
+        }
+        return agRenderers.moneyValue(params);
       },
       percentValue: function(params) {
         var number = Number(params.value);
@@ -1142,6 +1179,39 @@
         if (api && typeof api.destroy === 'function') api.destroy();
       });
       window._agGrids = [];
+      window._agGridById = {};
+    }
+
+    function getGridApi(gridId) {
+      return window._agGridById && window._agGridById[gridId];
+    }
+
+    function filterRepricing(action) {
+      var api = getGridApi('repricing-table');
+      if (!api) return;
+      api.setFilterModel(action ? {
+        recommended_action: {
+          type: 'equals',
+          filter: action
+        }
+      } : null);
+      if (typeof api.onFilterChanged === 'function') api.onFilterChanged();
+    }
+
+    function sortRepricing(mode) {
+      var api = getGridApi('repricing-table');
+      if (!api) return;
+      var sortModel = [];
+      if (mode === 'delta_desc') sortModel = [{ colId: 'delta_percent', sort: 'desc' }];
+      if (mode === 'delta_asc') sortModel = [{ colId: 'delta_percent', sort: 'asc' }];
+      if (mode === 'tokopedia_desc') sortModel = [{ colId: 'tokopedia_price', sort: 'desc' }];
+      if (mode === 'market_desc') sortModel = [{ colId: 'market_avg_price', sort: 'desc' }];
+      if (typeof api.applyColumnState === 'function') {
+        api.applyColumnState({
+          defaultState: { sort: null },
+          state: sortModel,
+        });
+      }
     }
 
     function resolveAgTheme() {
@@ -1192,6 +1262,7 @@
           if (theme) gridOptions.theme = theme;
           var gridApi = window.agGrid.createGrid(host, gridOptions);
           window._agGrids.push(gridApi);
+          if (host.dataset.gridId) window._agGridById[host.dataset.gridId] = gridApi;
           if (gridApi && typeof gridApi.sizeColumnsToFit === 'function') {
             requestAnimationFrame(function() {
               gridApi.sizeColumnsToFit();
@@ -1221,6 +1292,9 @@
           } else if (page === 'cards') {
             this.pageTitle = 'My Cards';
             this.pageMeta = 'Click any card to see full details and price history.';
+          } else if (page === 'repricing') {
+            this.pageTitle = 'Repricing Queue';
+            this.pageMeta = 'Cards that need Tokopedia price action.';
           } else if (page === 'ops') {
             this.pageTitle = 'Buying Opportunities';
             this.pageMeta = 'First-pass candidates from high global evidence plus low Tokopedia local supply.';
@@ -1244,6 +1318,9 @@
           } else if (path === '/opportunities') {
             this.setPage('ops');
             url = '/api/opportunities';
+          } else if (path === '/repricing') {
+            this.setPage('repricing');
+            url = '/api/repricing';
           } else if (path === '/soldcards') {
             this.setPage('sold');
             url = '/api/soldcards';

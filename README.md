@@ -1,6 +1,6 @@
 # Pokemon Store Price Scheduler
 
-This tool checks your Tokopedia Pokemon card listings at or above Rp 500,000 against marketplace references, stores each run in SQLite, and generates a report showing cards that look underpriced.
+This tool checks your Tokopedia Pokemon card listings at or above Rp 500,000 against marketplace references, stores each run in SQLite, and helps you decide which cards need repricing.
 
 It is designed to run both on demand and from a daily schedule.
 
@@ -37,7 +37,7 @@ Outputs:
 - `reports/cards/*.html` - card detail pages with identity, chart, and source listings
 - `reports/opportunities.html` - first-pass local-supply/global-demand opportunity shortlist
 - `reports/charts/*.svg` - per-card price history charts
-- `data/price_history.sqlite3` - historical runs and source observations
+- `data/price_history.sqlite3` - historical runs, source observations, and per-run price snapshots
 
 ## Configure Products
 
@@ -78,7 +78,25 @@ becomes:
 - Tokopedia/eBay: `Meowth Ex SAR raw NM m3 Japanese`
 - SnkrDunk: `Meowth Ex SAR m3`
 
-## Dashboard
+## Live App
+
+Start the Flask app:
+
+```bash
+python3 -m pokemon_price_scheduler.web
+```
+
+The live app serves a single-page interface with:
+
+- `/cards` - My Cards AG Grid with current Tokopedia price, market average, delta, alert status, and trend
+- `/cards/<slug>` - card detail with latest prices, 7-day and 30-day trend, suggested prices, chart, and price history table
+- `/repricing` - daily Repricing Queue with action summaries, filters, sorting, suggested prices, and recommended action
+- `/opportunities` - local-supply/global-demand opportunity shortlist
+- `/soldcards` - sold listing review and restore workflow
+
+The frontend is a Flask-served SPA using Alpine.js and AG Grid Community. AG Grid CSS and JavaScript are vendored under `static/vendor/ag-grid/` and loaded by `static/index.html`.
+
+## Generated Dashboard
 
 Open `reports/dashboard.html` in a browser after a run. Each row shows your Tokopedia price, global average, delta percentage, and alert level. Clicking a row opens a card detail page with:
 
@@ -86,6 +104,25 @@ Open `reports/dashboard.html` in a browser after a run. Each row shows your Toko
 - price history chart
 - up to 10 nearby or same-item listings per source
 - source warnings when a marketplace blocks scraping
+
+## Price History and Repricing
+
+Every scheduler run stores one `price_history` snapshot per card after prices are analyzed. Each snapshot records the card, Tokopedia price, market average, delta percent, alert status, source summary, and timestamp.
+
+Suggested Tokopedia prices are derived from the latest market average:
+
+- Quick Sale Price = `market_avg_price * 0.92`
+- Normal Price = `market_avg_price * 0.98`
+- Max Profit Price = `market_avg_price * 1.05`
+
+If market average is missing, the app shows `Insufficient market data`.
+
+The Repricing Queue recommends:
+
+- `Lower price` when Tokopedia price is more than 10% above market average
+- `Raise price` when Tokopedia price is more than 10% below market average
+- `Missing market data` when market average is unavailable
+- `Aligned` when price is within +/-10% of market average
 
 ## Opportunity Discovery
 
@@ -136,6 +173,9 @@ pokemon_price_scheduler/
 │   ├── card_detail.html
 │   └── opportunities.html
 │
+├── v2/                         # Run trace storage and newer pipeline persistence
+├── static/vendor/ag-grid/      # Vendored AG Grid Community runtime and theme assets
+├── ui_components.py            # Shared live-app HTML/AG Grid component builders
 ├── models.py                  # Backward-compat shim → re-exports domain/
 ├── parsing.py                 # Backward-compat shim → re-exports infrastructure/
 ├── http.py                    # Backward-compat shim → re-exports infrastructure/
