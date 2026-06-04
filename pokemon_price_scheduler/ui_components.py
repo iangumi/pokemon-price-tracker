@@ -113,8 +113,8 @@ def data_table(
     column_defs = columns or [{"field": header, "headerName": header} for header in headers]
     column_defs = [column for column in column_defs if _column_has_values(column, rows)]
     return f"""
-    <div class="table-shell ag-grid-shell {h(class_name)}">
-      <div{attrs(id=table_id or None, class_="ag-grid-host", data_columns=json.dumps(column_defs), data_rows=json.dumps(rows), data_grid_id=table_id or None)}></div>
+    <div class="table-shell grid-shell {h(class_name)}">
+      <div{attrs(id=table_id or None, class_=f"ag-grid-host ag-theme-quartz {class_name}".strip(), data_columns=json.dumps(column_defs), data_rows=json.dumps(rows), data_grid_id=table_id or None)}></div>
     </div>"""
 
 
@@ -212,22 +212,24 @@ def cards_fragment(products: list[Any], data_by_slug: dict[str, dict[str, Any]])
             "alert_label": alert_label or "Aligned",
             "market_trend": info.get("market_trend_percent"),
         })
-    return toolbar(
+    content = toolbar(
         button("Sync Store", onclick="syncNewProducts()", variant="secondary"),
         button("Add Card", onclick="openAddCardModal()", variant="primary"),
     ) + data_table(
         ["title", "own_price", "market_avg", "delta", "alert", "market_trend"],
         rows,
         table_id="cards-table",
+        class_name="cards-data-grid",
         columns=[
-            {"field": "title", "headerName": "Card", "cellRenderer": "cardLink", "flex": 2, "minWidth": 280},
-            {"field": "own_price", "headerName": "Your Price", "cellRenderer": "moneyValue", "width": 150, "type": "numericColumn"},
-            {"field": "market_avg", "headerName": "Market Avg", "cellRenderer": "moneyValue", "width": 150, "type": "numericColumn"},
-            {"field": "delta", "headerName": "Delta", "cellRenderer": "percentValue", "width": 120, "type": "numericColumn"},
-            {"field": "alert", "headerName": "Alert", "cellRenderer": "alertBadge", "width": 150, "alwaysRender": True},
-            {"field": "market_trend", "headerName": "Market Trend", "valueFormatter": "pct", "cellRenderer": "trend", "width": 150, "type": "numericColumn"},
+            {"field": "title", "headerName": "Card", "cellRenderer": "cardLink", "flex": 3, "minWidth": 420, "wrapText": True, "autoHeight": True},
+            {"field": "own_price", "headerName": "Your Price", "cellRenderer": "moneyValue", "flex": 1, "minWidth": 150, "type": "numericColumn"},
+            {"field": "market_avg", "headerName": "Market Avg", "cellRenderer": "moneyValue", "flex": 1, "minWidth": 150, "type": "numericColumn"},
+            {"field": "delta", "headerName": "Delta", "cellRenderer": "percentValue", "flex": 1, "minWidth": 140, "type": "numericColumn"},
+            {"field": "alert", "headerName": "Alert", "cellRenderer": "alertBadge", "flex": 1, "minWidth": 150, "alwaysRender": True},
+            {"field": "market_trend", "headerName": "Market Trend", "valueFormatter": "pct", "cellRenderer": "trend", "flex": 1, "minWidth": 150, "type": "numericColumn"},
         ],
     )
+    return f'<section class="cards-page">{content}</section>'
 
 
 def identity_panel(product: Any) -> str:

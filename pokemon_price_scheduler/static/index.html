@@ -572,6 +572,19 @@
     .main {
       background-image: linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
       background-size: 32px 32px;
+      width: 100%;
+      max-width: none;
+      box-sizing: border-box;
+    }
+    #content {
+      width: 100%;
+      max-width: none;
+      box-sizing: border-box;
+    }
+    .cards-page {
+      width: 100%;
+      max-width: none;
+      box-sizing: border-box;
     }
     .toolbar {
       display: flex;
@@ -673,6 +686,9 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
       background: var(--surface);
+      width: 100%;
+      max-width: none;
+      box-sizing: border-box;
     }
     table {
       border: 0;
@@ -687,14 +703,62 @@
     td {
       border-bottom-color: rgba(51, 64, 76, 0.72);
     }
-    .ag-grid-shell {
+    .grid-shell {
       min-height: 360px;
       padding: 0;
+      width: 100%;
+      max-width: none;
+      box-sizing: border-box;
     }
     .ag-grid-host {
       width: 100%;
+      max-width: none;
       height: 420px;
       border-radius: var(--radius-md);
+      min-width: 0;
+      box-sizing: border-box;
+      --ag-background-color: #111827;
+      --ag-foreground-color: #e5e7eb;
+      --ag-data-color: #e5e7eb;
+      --ag-secondary-foreground-color: #a9bbcc;
+      --ag-header-background-color: #1f2937;
+      --ag-header-foreground-color: #f9fafb;
+      --ag-border-color: #374151;
+      --ag-row-border-color: #374151;
+      --ag-odd-row-background-color: #171f27;
+      --ag-row-hover-color: #243244;
+      --ag-selected-row-background-color: rgba(34, 211, 238, 0.16);
+      --ag-control-panel-background-color: #151b22;
+      --ag-subheader-background-color: #151b22;
+      --ag-input-background-color: #101820;
+      --ag-input-text-color: var(--text);
+      --ag-modal-overlay-background-color: rgba(4, 8, 12, 0.65);
+      color: var(--text);
+    }
+    .cards-page .cards-data-grid.grid-shell {
+      width: 100%;
+      max-width: none;
+      height: calc(100vh - 260px);
+      min-height: 520px;
+      box-sizing: border-box;
+    }
+    .cards-page .cards-data-grid .ag-grid-host,
+    .cards-page .cards-data-grid.ag-grid-host {
+      width: 100%;
+      max-width: none;
+      height: 100%;
+      min-height: 520px;
+      box-sizing: border-box;
+    }
+    .cards-page .cards-data-grid a,
+    .cards-page .cards-data-grid .table-title {
+      color: #93c5fd;
+      text-decoration: none;
+    }
+    .cards-page .cards-data-grid a:hover,
+    .cards-page .cards-data-grid .table-title:hover {
+      color: #bfdbfe;
+      text-decoration: underline;
     }
     .data-table--compact .ag-grid-host {
       height: 320px;
@@ -702,8 +766,10 @@
     .ag-cell {
       display: flex;
       align-items: center;
+      color: #e5e7eb;
     }
     .ag-header-cell-text {
+      color: #f9fafb;
       font-family: var(--font-display);
       font-size: 11px;
       font-weight: 800;
@@ -712,7 +778,7 @@
     }
     .table-title {
       display: block;
-      color: #dbeafe;
+      color: #9eeaff;
       font-family: var(--font-display);
       font-size: 14px;
       font-weight: 800;
@@ -720,7 +786,7 @@
       text-decoration: none;
     }
     .table-title:hover {
-      color: var(--accent-h);
+      color: #dff8ff;
     }
     .table-subtitle {
       display: block;
@@ -1109,8 +1175,15 @@
             suppressCellFocus: true,
             enableCellTextSelection: true,
             domLayout: rows.length <= 6 ? 'autoHeight' : 'normal',
+            autoSizeStrategy: {
+              type: 'fitGridWidth'
+            },
             defaultColDef: {
-              minWidth: 120,
+              flex: 1,
+              minWidth: 140,
+              resizable: true,
+              sortable: true,
+              filter: true,
               wrapText: true,
               autoHeight: true
             }
@@ -1119,6 +1192,11 @@
           if (theme) gridOptions.theme = theme;
           var gridApi = window.agGrid.createGrid(host, gridOptions);
           window._agGrids.push(gridApi);
+          if (gridApi && typeof gridApi.sizeColumnsToFit === 'function') {
+            requestAnimationFrame(function() {
+              gridApi.sizeColumnsToFit();
+            });
+          }
         } catch (error) {
           console.error('AG Grid init failed:', error);
           host.innerHTML = '<div class="empty-state"><strong>Table failed to load</strong><span>' + escapeHtml(error.message) + '</span></div>';
