@@ -112,8 +112,10 @@ SQLite stores both run trace data and daily workflow data:
 ### SPA + API Backend
 
 `web.py` serves two roles simultaneously:
-1. **Static file server** — `static/index.html` for all routes (`/`, `/cards`, `/cards/<slug>`, `/opportunities`, `/soldcards`)
+1. **Static file server** — `static/index.html` for all SPA routes (`/`, `/cards`, `/cards/<slug>`, `/reports`, `/opportunities`, `/repricing`, `/soldcards`)
 2. **API backend** — HTML fragments and JSON at `/api/*` endpoints fetched by the SPA via `fetch()`
+
+The live app uses a retro handheld design system in `static/index.html`: LCD-green panels, square controls, inline SVG menu/KPI icons, dense AG Grid tables, and compact dashboard previews. Server-rendered fragments are built in `ui_components.py`.
 
 ---
 
@@ -177,10 +179,11 @@ Main output of a run. Fields: `product`, `run_at`, `source_results[]`, `market_m
 | Route | Method | Purpose |
 |---|---|---|
 | `/` | GET | Serves `static/index.html` |
-| `/cards`, `/cards/<slug>`, `/repricing`, `/opportunities`, `/soldcards` | GET | SPA routing — all serve `static/index.html` |
-| `/api/dashboard` | GET | Dashboard table HTML fragment |
+| `/cards`, `/cards/<slug>`, `/reports`, `/repricing`, `/opportunities`, `/soldcards` | GET | SPA routing — all serve `static/index.html` |
+| `/api/dashboard` | GET | Dashboard Live Store Signals, Active Cards preview, and Repricing Queue preview |
 | `/api/cards` | GET | Cards grid HTML fragment |
 | `/api/cards/<slug>` | GET | Card detail HTML fragment |
+| `/api/reports` | GET | Reports page HTML fragment with report links and Source Health |
 | `/api/repricing` | GET | Repricing Queue HTML fragment |
 | `/api/cards/<slug>/revert-sold` | PUT | Revert sold card to active |
 | `/api/cards/<slug>/update-price` | PUT | Fetch current Tokopedia listing price |
@@ -216,11 +219,24 @@ Suggested prices are calculated from market average:
 
 The page includes summary counts, action filters, delta/price sorting, and AG Grid-native column sizing.
 
+## Live Dashboard and Reports
+
+The live dashboard is intentionally not a full report. It is a first-screen operating surface:
+
+- `Live Store Signals` wraps Active Listings, Portfolio Value, Market Value, Active Alerts, and Latest Run.
+- Portfolio and market values use compact dashboard formatting (`Rp x.xM`), while full grids keep full IDR formatting.
+- `Active Cards` previews the highest-value active Tokopedia listings.
+- `Repricing Queue` previews actionable rows first: Lower price, Raise price, Missing market data, then Aligned.
+- Source Health diagnostics live on `/reports` and `/api/reports`, alongside `latest.md` and `latest.csv` links.
+
+The dashboard, reports, card detail, and grid pages are all server-rendered HTML fragments fetched by the Alpine SPA. This keeps behavior Python-testable while avoiding a separate frontend build pipeline.
+
 ## SPA Architecture (`static/index.html`)
 
 Single HTML file with:
 - **`app()`** Alpine.js component: manages `currentPage`, `pageTitle`, `pageMeta`, `pageContent`, `schedulerState`, `toasts[]`
 - **`navigateTo(path)`**: fetches `/api/*` HTML fragments, renders into `#content`, initializes AG Grid mounts
+- **Inline SVG navigation icons**: embedded in the static shell; no icon dependency or network fetch
 - **AG Grid adapter**: reads `data-columns` and `data-rows` from generated fragments, creates grids, and stores APIs in `window._agGridById`
 - **Repricing controls**: `filterRepricing(action)` and `sortRepricing(mode)` call AG Grid filter/sort APIs for the daily queue
 - **EventSource (`/run/status`)**: SSE client for live scheduler progress

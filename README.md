@@ -88,13 +88,28 @@ python3 -m pokemon_price_scheduler.web
 
 The live app serves a single-page interface with:
 
+- `/` - Dashboard with Live Store Signals, compact portfolio/market value KPIs, Active Cards preview, and Repricing Queue preview
 - `/cards` - My Cards AG Grid with current Tokopedia price, market average, delta, alert status, and trend
 - `/cards/<slug>` - card detail with latest prices, 7-day and 30-day trend, suggested prices, chart, and price history table
 - `/repricing` - daily Repricing Queue with action summaries, filters, sorting, suggested prices, and recommended action
+- `/reports` - generated report links plus Source Health diagnostics from the latest scheduler trace
 - `/opportunities` - local-supply/global-demand opportunity shortlist
 - `/soldcards` - sold listing review and restore workflow
 
-The frontend is a Flask-served SPA using Alpine.js and AG Grid Community. AG Grid CSS and JavaScript are vendored under `static/vendor/ag-grid/` and loaded by `static/index.html`.
+The frontend is a Flask-served SPA using Alpine.js, AG Grid Community, server-rendered HTML fragments, and a minimal retro handheld design system. AG Grid CSS and JavaScript are vendored under `static/vendor/ag-grid/` and loaded by `static/index.html`.
+
+### Live App Navigation
+
+The live app uses the same Flask shell for every navigation route, then fetches page fragments from `/api/*` endpoints:
+
+- **Dashboard** - first-screen operating view. `Live Store Signals` wraps Active Listings, Portfolio Value, Market Value, Active Alerts, and Latest Run. Portfolio and market totals are compacted to `Rp x.xM` for dashboard scanning. Below the signals, compact Active Cards and Repricing Queue previews link to their full pages.
+- **My Cards** - full active-listing grid. This is the inventory review page and keeps full currency formatting.
+- **Reports** - generated report files plus Source Health. Source Health was moved here so dashboard space stays focused on store operation.
+- **Opportunities** - first-pass buying/import review queue.
+- **Repricing Queue** - full pricing action workflow with summaries, filters, sorting, suggested prices, and recommended action.
+- **Sold Cards** - sold/delisted listing review and restore workflow.
+
+Menu icons are inline SVGs embedded in `static/index.html`; no icon library is required.
 
 ## Generated Dashboard
 

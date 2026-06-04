@@ -26,6 +26,7 @@ from .ui_components import (
     dashboard_fragment,
     opportunities_fragment,
     repricing_queue_fragment,
+    reports_fragment,
     sold_cards_fragment,
 )
 from .v2.storage import TraceStore
@@ -102,6 +103,11 @@ def repricing_page():
     return app.send_static_file("index.html")
 
 
+@app.route("/reports")
+def reports_page():
+    return app.send_static_file("index.html")
+
+
 @app.route("/soldcards")
 def sold_cards_page():
     return app.send_static_file("index.html")
@@ -123,6 +129,7 @@ def api_dashboard():
     portfolio_value = sum(p.own_price_idr or 0 for p in active)
     market_value = 0
     alerts_count = 0
+    active_card_rows = []
     for product in active:
         info = data_by_slug.get(product.slug, {})
         global_avg = info.get("global_average_idr")
@@ -130,18 +137,42 @@ def api_dashboard():
             market_value += global_avg
         if info.get("alert_level") == "red":
             alerts_count += 1
+        active_card_rows.append(
+            {
+                "title": product.title,
+                "slug": product.slug,
+                "own_price": product.own_price_idr,
+                "market_avg": global_avg,
+                "delta": info.get("price_delta_percent"),
+                "alert": info.get("alert_level", "none"),
+                "alert_label": info.get("alert_label", ""),
+            }
+        )
+    active_card_rows.sort(key=lambda row: row.get("own_price") or 0, reverse=True)
 
     store = TraceStore(BASE_DIR / "data" / "price_history.sqlite3")
     latest_run_id = store.latest_run_id()
     latest_run = store.inspect_run(latest_run_id) if latest_run_id is not None else None
+    active_slugs = {p.slug for p in active}
     html = dashboard_fragment(
         total_listings=total_listings,
         portfolio_value=portfolio_value,
         market_value=market_value,
         alerts_count=alerts_count,
         latest_run=latest_run,
+        active_cards=active_card_rows,
+        repricing_rows=repricing_queue(active_slugs),
     )
     return html, 200, {"Content-Type": "text/html"}
+
+
+@app.route("/api/reports")
+def api_reports():
+    """Return Reports page fragment with report links and source health."""
+    store = TraceStore(BASE_DIR / "data" / "price_history.sqlite3")
+    latest_run_id = store.latest_run_id()
+    latest_run = store.inspect_run(latest_run_id) if latest_run_id is not None else None
+    return reports_fragment(latest_run), 200, {"Content-Type": "text/html"}
 
 
 @app.route("/api/cards")

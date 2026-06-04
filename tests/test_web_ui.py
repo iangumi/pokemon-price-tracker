@@ -75,10 +75,26 @@ class WebUiTests(unittest.TestCase):
     def test_dashboard_uses_shared_trading_desk_components(self):
         self.assert_fragment_has(
             "/api/dashboard",
+            "Live Store Signals",
             "metric-grid",
             "metric-card",
             "panel",
+            "Active Cards",
+            "Repricing Queue",
+            "dashboard-preview-table",
+            "Rp 0.8M",
+        )
+        response = self.client.get("/api/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("Source Health", response.get_data(as_text=True))
+
+    def test_reports_page_contains_source_health_and_report_links(self):
+        self.assert_fragment_has(
+            "/api/reports",
+            "Report Files",
             "Source Health",
+            "latest.md",
+            "latest.csv",
         )
 
     def test_cards_uses_shared_table_and_toolbar(self):
@@ -305,7 +321,7 @@ class WebUiTests(unittest.TestCase):
         finally:
             response.close()
 
-    def test_index_uses_ag_grid_dark_blue_theme(self):
+    def test_index_uses_retro_handheld_grid_theme(self):
         response = self.client.get("/")
         try:
             self.assertEqual(response.status_code, 200)
@@ -319,14 +335,23 @@ class WebUiTests(unittest.TestCase):
             self.assertIn("suggestedMoney", html_text)
             self.assertIn("filterRepricing", html_text)
             self.assertIn("sortRepricing", html_text)
+            self.assertIn("navigateTo('/reports')", html_text)
+            self.assertIn("/api/reports", html_text)
+            self.assertIn('class="nav-icon"', html_text)
             self.assertIn("_agGridById", html_text)
             self.assertIn("autoSizeStrategy", html_text)
             self.assertIn("minWidth: 140", html_text)
             self.assertIn("resizable: true", html_text)
-            self.assertIn("--ag-foreground-color: #38bdf8", html_text)
-            self.assertIn("--ag-background-color: #111827", html_text)
-            self.assertIn("--ag-header-background-color: #1f2937", html_text)
-            self.assertIn("--ag-row-hover-color: #243244", html_text)
+            self.assertIn("--case: #d8d3b7", html_text)
+            self.assertIn("--lcd: #a9bd68", html_text)
+            self.assertIn("--button: #7b3f73", html_text)
+            self.assertIn("--ag-background-color: rgba(199, 216, 138, 0.78)", html_text)
+            self.assertIn("--ag-foreground-color: var(--ink)", html_text)
+            self.assertIn("--ag-header-background-color: var(--lcd-light)", html_text)
+            self.assertIn("--ag-header-foreground-color: #000", html_text)
+            self.assertIn("--ag-row-hover-color: rgba(24, 35, 19, 0.16)", html_text)
+            self.assertIn("rowHeight: isCardsGrid ? 72 : 44", html_text)
+            self.assertIn("-webkit-line-clamp: 2", html_text)
             self.assertIn(".cards-page", html_text)
             self.assertIn("height: calc(100vh - 260px)", html_text)
             self.assertIn("max-width: none", html_text)

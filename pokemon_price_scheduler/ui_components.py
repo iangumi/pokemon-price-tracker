@@ -87,10 +87,31 @@ def empty_state(title: str, message: str, *, action: str = "") -> str:
     </div>"""
 
 
-def metric_card(label: str, value: str, hint: str = "", tone: str = "neutral") -> str:
+def inline_icon(name: str) -> str:
+    paths = {
+        "store": '<path d="M4 9h16l-2-5H6L4 9Z"/><path d="M6 9v10h12V9"/><path d="M9 19v-6h6v6"/>',
+        "cards": '<rect x="7" y="4" width="10" height="14" rx="1"/><path d="M4 7h3M17 7h3M10 8h4M10 12h4"/>',
+        "market": '<path d="M4 17h16"/><path d="M6 14l4-4 3 3 5-7"/><path d="M16 6h2v2"/>',
+        "alert": '<path d="M12 4 4 18h16L12 4Z"/><path d="M12 9v4M12 16h.01"/>',
+        "run": '<path d="M5 12a7 7 0 0 1 12-5"/><path d="M17 7V4h3"/><path d="M19 12a7 7 0 0 1-12 5"/><path d="M7 17v3H4"/>',
+        "queue": '<path d="M6 6h12M6 12h12M6 18h12"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>',
+        "report": '<path d="M7 3h7l3 3v15H7V3Z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>',
+    }
+    path = paths.get(name, paths["cards"])
+    return f'<span class="ui-icon ui-icon--{h(name)}" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false">{path}</svg></span>'
+
+
+def compact_millions(value: int | None) -> str:
+    if value is None:
+        return "-"
+    return f"Rp {value / 1_000_000:.1f}M"
+
+
+def metric_card(label: str, value: str, hint: str = "", tone: str = "neutral", *, icon: str = "") -> str:
+    icon_html = inline_icon(icon) if icon else ""
     return f"""
     <div class="metric-card metric-card--{h(tone)}">
-      <span class="metric-label">{h(label)}</span>
+      <span class="metric-label">{icon_html}{h(label)}</span>
       <strong class="metric-value">{value}</strong>
       <span class="metric-hint">{h(hint)}</span>
     </div>"""
@@ -158,19 +179,10 @@ def action_badge(action: str) -> str:
     return badge(action, tones.get(action, "neutral"))
 
 
-def dashboard_fragment(
-    *,
-    total_listings: int,
-    portfolio_value: int,
-    market_value: int,
-    alerts_count: int,
-    latest_run: dict[str, Any] | None,
-) -> str:
+def source_health_panel(latest_run: dict[str, Any] | None) -> str:
     failures = latest_run.get("failures", []) if latest_run else []
-    run_status = latest_run.get("status", "No runs") if latest_run else "No runs"
-    run_time = latest_run.get("run_at", "-") if latest_run else "-"
     failure_rows = []
-    for failure in failures[:5]:
+    for failure in failures[:20]:
         failure_rows.append({
             "source": failure.get("source_name", "-"),
             "failure": failure.get("failure_kind") or failure.get("status") or "error",
@@ -190,18 +202,127 @@ def dashboard_fragment(
         ],
     ) if failures else empty_state("No source failures", "Latest run completed without recorded source errors.")
 
+    return panel("Source Health", failures_body, subtitle="Latest scheduler trace and marketplace access status.")
+
+
+def reports_fragment(latest_run: dict[str, Any] | None) -> str:
+    run_status = latest_run.get("status", "No runs") if latest_run else "No runs"
+    run_time = latest_run.get("run_at", "-") if latest_run else "-"
     return (
+        panel(
+            "Report Files",
+            metric_grid(
+                [
+                    metric_card("Latest run", h(run_status).title(), run_time, "success" if run_status == "complete" else "warning", icon="run"),
+                    metric_card("Markdown report", "latest.md", "Open the latest generated report", icon="report"),
+                    metric_card("CSV export", "latest.csv", "Download the latest tabular report", icon="report"),
+                ]
+            )
+            + toolbar(
+                link_button("Open Markdown", "/latest.md", variant="secondary", external=True),
+                link_button("Open CSV", "/latest.csv", variant="secondary", external=True),
+            ),
+            subtitle="Generated scheduler outputs and source diagnostics.",
+        )
+        + source_health_panel(latest_run)
+    )
+
+
+def dashboard_active_cards_preview(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return empty_state("No active cards", "Add Tokopedia listings to populate active cards.")
+    body = []
+    for row in rows[:6]:
+        body.append(
+            f"""
+            <tr>
+              <td><a class="table-title" href="/cards/{h(row.get('slug', ''))}">{h(row.get('title', '-'))}</a></td>
+              <td class="table-money">{h(idr(row.get('own_price')))}</td>
+              <td>{format_trend(row.get('delta'))}</td>
+              <td>{alert_badge(row.get('alert', 'none'), row.get('alert_label', ''))}</td>
+            </tr>"""
+        )
+    return f"""
+    <div class="dashboard-preview-table">
+      <table>
+        <thead><tr><th>Card</th><th>Your Price</th><th>Delta</th><th>Alert</th></tr></thead>
+        <tbody>{"".join(body)}</tbody>
+      </table>
+    </div>
+    {toolbar(link_button("View All Cards", "/cards", variant="secondary"))}"""
+
+
+def _repricing_priority(row: dict[str, Any]) -> tuple[int, float]:
+    priorities = {"Lower price": 0, "Raise price": 1, "Missing market data": 2, "Aligned": 3}
+    action = row.get("recommended_action", "Aligned")
+    delta = row.get("delta_percent")
+    abs_delta = abs(float(delta)) if delta is not None else -1.0
+    return priorities.get(action, 4), -abs_delta
+
+
+def dashboard_repricing_preview(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return empty_state("No repricing data", "Run the scheduler to calculate repricing actions.")
+    body = []
+    short_actions = {
+        "Lower price": "Lower",
+        "Raise price": "Raise",
+        "Missing market data": "Missing",
+        "Aligned": "Aligned",
+    }
+    for row in sorted(rows, key=_repricing_priority)[:6]:
+        action = row.get("recommended_action", "Aligned")
+        body.append(
+            f"""
+            <tr>
+              <td><a class="table-title" href="/cards/{h(row.get('slug', ''))}">{h(row.get('title', '-'))}</a></td>
+              <td class="table-money">{h(idr(row.get('tokopedia_price')))}</td>
+              <td>{format_trend(row.get('delta_percent'))}</td>
+              <td>{badge(short_actions.get(action, action), {"Lower price": "danger", "Raise price": "warning", "Missing market data": "muted", "Aligned": "success"}.get(action, "neutral"))}</td>
+            </tr>"""
+        )
+    return f"""
+    <div class="dashboard-preview-table">
+      <table>
+        <thead><tr><th>Card</th><th>Tokopedia</th><th>Delta</th><th>Action</th></tr></thead>
+        <tbody>{"".join(body)}</tbody>
+      </table>
+    </div>
+    {toolbar(link_button("Open Repricing Queue", "/repricing", variant="secondary"))}"""
+
+
+def dashboard_fragment(
+    *,
+    total_listings: int,
+    portfolio_value: int,
+    market_value: int,
+    alerts_count: int,
+    latest_run: dict[str, Any] | None,
+    active_cards: list[dict[str, Any]] | None = None,
+    repricing_rows: list[dict[str, Any]] | None = None,
+) -> str:
+    run_status = latest_run.get("status", "No runs") if latest_run else "No runs"
+    run_time = latest_run.get("run_at", "-") if latest_run else "-"
+    signals = panel(
+        "Live Store Signals",
         metric_grid(
             [
-                metric_card("Active listings", f"{total_listings:,}", "Live cards in your store"),
-                metric_card("Portfolio value", idr(portfolio_value), "Sum of Tokopedia prices"),
-                metric_card("Market value", idr(market_value), "Sum of latest global averages"),
-                metric_card("Active alerts", f"{alerts_count:,}", "Cards priced above market", "danger" if alerts_count else "success"),
-                metric_card("Latest run", h(run_status).title(), run_time, "success" if run_status == "complete" else "warning"),
+                metric_card("Active listings", f"{total_listings:,}", "Live cards in your store", icon="store"),
+                metric_card("Portfolio value", compact_millions(portfolio_value), "Sum of Tokopedia prices", icon="cards"),
+                metric_card("Market value", compact_millions(market_value), "Sum of latest global averages", icon="market"),
+                metric_card("Active alerts", f"{alerts_count:,}", "Cards priced above market", "danger" if alerts_count else "success", icon="alert"),
+                metric_card("Latest run", h(run_status).title(), run_time, "success" if run_status == "complete" else "warning", icon="run"),
             ]
-        )
-        + panel("Source Health", failures_body, subtitle="Latest scheduler trace and marketplace access status.")
+        ),
+        subtitle="Live operating signals from active Tokopedia listings.",
+        class_name="live-store-signals",
     )
+    previews = f"""
+    <section class="dashboard-preview-grid">
+      {panel("Active Cards", dashboard_active_cards_preview(active_cards or []), subtitle="Highest value active listings.", class_name="dashboard-preview-panel")}
+      {panel("Repricing Queue", dashboard_repricing_preview(repricing_rows or []), subtitle="Actionable pricing changes from current market averages.", class_name="dashboard-preview-panel")}
+    </section>"""
+    return signals + previews
 
 
 def cards_fragment(products: list[Any], data_by_slug: dict[str, dict[str, Any]]) -> str:
@@ -303,15 +424,20 @@ def card_detail_fragment(
             "Used for competitor search URLs.",
         )
 
-    metrics = metric_grid(
-        [
-            metric_card("Latest Tokopedia price", idr(latest_tokopedia_price)),
-            metric_card("Latest market avg", idr(latest_market_avg)),
-            metric_card("Delta", pct(info.get("price_delta_percent"))),
-            metric_card("7 day market trend", pct(trend_7d)),
-            metric_card("30 day market trend", pct(trend_30d)),
-            metric_card("Status", badge("Sold", "danger") if is_sold else alert_badge(alert, alert_label)),
-        ]
+    metrics = panel(
+        "Price Review Snapshot",
+        metric_grid(
+            [
+                metric_card("Latest Tokopedia price", idr(latest_tokopedia_price), icon="store"),
+                metric_card("Latest market avg", idr(latest_market_avg), icon="market"),
+                metric_card("Delta", pct(info.get("price_delta_percent")), icon="alert"),
+                metric_card("7 day market trend", pct(trend_7d), icon="run"),
+                metric_card("30 day market trend", pct(trend_30d), icon="run"),
+                metric_card("Status", badge("Sold", "danger") if is_sold else alert_badge(alert, alert_label), icon="queue"),
+            ]
+        ),
+        subtitle="Latest saved scheduler snapshot and market movement.",
+        class_name="detail-review-panel",
     )
 
     chart = ""
@@ -325,10 +451,10 @@ def card_detail_fragment(
         toolbar(*actions)
         + search_editor
         + metrics
-        + suggested_price_panel(suggested)
-        + identity_panel(product)
         + chart
+        + suggested_price_panel(suggested)
         + price_history_panel(price_history)
+        + identity_panel(product)
         + source_evidence_panel(observations)
     )
 
