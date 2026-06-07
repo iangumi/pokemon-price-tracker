@@ -89,11 +89,13 @@ python3 -m pokemon_price_scheduler.web
 The live app serves a single-page interface with:
 
 - `/` - Dashboard with Live Store Signals, compact portfolio/market value KPIs, Active Cards preview, and Repricing Queue preview
-- `/cards` - My Cards AG Grid with current Tokopedia price, market average, delta, alert status, and trend
+- `/cards` - Store Listings AG Grid with current Tokopedia price, market average, delta, alert status, and trend
 - `/cards/<slug>` - card detail with latest prices, 7-day and 30-day trend, suggested prices, chart, and price history table
+- `/inventory` - owned inventory from opportunity conversions and listing lifecycles
+- `/opportunities` - persistent buy-list opportunities with add and conversion workflow
+- `/opportunities/<slug>` - opportunity detail and conversion action
 - `/repricing` - daily Repricing Queue with action summaries, filters, sorting, suggested prices, and recommended action
 - `/reports` - generated report links plus Source Health diagnostics from the latest scheduler trace
-- `/opportunities` - local-supply/global-demand opportunity shortlist
 - `/soldcards` - sold listing review, sales income capture, and restock workflow
 
 The frontend is a Flask-served SPA using Alpine.js, AG Grid Community, server-rendered HTML fragments, and a minimal retro handheld design system. AG Grid CSS and JavaScript are vendored under `static/vendor/ag-grid/` and loaded by `static/index.html`.
@@ -103,11 +105,12 @@ The frontend is a Flask-served SPA using Alpine.js, AG Grid Community, server-re
 The live app uses the same Flask shell for every navigation route, then fetches page fragments from `/api/*` endpoints:
 
 - **Dashboard** - first-screen operating view. `Live Store Signals` wraps Active Listings, Portfolio Value, Market Value, Active Alerts, and Latest Run. Portfolio and market totals are compacted to `Rp x.xM` for dashboard scanning. Below the signals, compact Active Cards and Repricing Queue previews link to their full pages.
-- **My Cards** - full active-listing grid. This is the inventory review page and keeps full currency formatting.
-- **Reports** - generated report files plus Source Health. Source Health was moved here so dashboard space stays focused on store operation.
-- **Opportunities** - first-pass buying/import review queue.
+- **Store Listings** - full active-listing grid for Tokopedia listing management. This keeps full currency formatting and is separate from owned Inventory.
+- **Inventory** - owned stock from buy-list conversions and listing lifecycles.
+- **Opportunities** - persistent buy-list cards with source link, price, detail page, and conversion into inventory/listing.
 - **Repricing Queue** - full pricing action workflow with summaries, filters, sorting, suggested prices, and recommended action.
 - **Sold Cards** - sales review and income capture. Sold rows show listing price, sold price, bought price, sold date, and net income. Existing sold cards can be edited, and restocking creates a new active listing lifecycle while preserving sale history.
+- **Reports** - generated report files plus Source Health. Source Health was moved here so dashboard space stays focused on store operation.
 
 Menu icons are inline SVGs embedded in `static/index.html`; no icon library is required.
 
@@ -157,9 +160,17 @@ Manual sale capture is available from card detail and sold cards:
 
 See `INVENTORY_SALES.md` for the detailed model, endpoints, and future extension notes.
 
-## Opportunity Discovery
+## Opportunities and Inventory Conversion
 
-`reports/opportunities.html` is a first-pass shortlist for cards where global evidence exists but local Tokopedia supply appears thin. This is meant for review before buying, not automatic purchasing.
+The live `/opportunities` page is a buy-list workflow, not the generated market-opportunity report. Add cards you are considering buying with card name, rarity, language, source, link, and price. Clicking an opportunity opens `/opportunities/<slug>`.
+
+From the opportunity detail page, **Convert to Inventory** always creates an owned inventory item. Bought price defaults to the opportunity price but can be edited. If Tokopedia listing URL and listing price are provided during conversion, the app also creates an active Store Listing in `config/products.json` and the SQLite listing lifecycle.
+
+Converted opportunities are marked `converted` and kept for audit history.
+
+`reports/opportunities.html` remains a static generated report output for local-supply/global-demand analysis, separate from the live buy-list page.
+
+See `OPPORTUNITIES_INVENTORY.md` for the detailed workflow, conversion logic, schema notes, and compatibility checklist.
 
 ## Daily Schedule
 
@@ -209,7 +220,7 @@ pokemon_price_scheduler/
 ├── v2/                         # Run trace storage and newer pipeline persistence
 ├── static/vendor/ag-grid/      # Vendored AG Grid Community runtime and theme assets
 ├── ui_components.py            # Shared live-app HTML/AG Grid component builders
-├── inventory.py                # SQLite cards/listings/sales inventory and income tracking
+├── inventory.py                # SQLite cards/listings/sales/opportunities/inventory tracking
 ├── models.py                  # Backward-compat shim → re-exports domain/
 ├── parsing.py                 # Backward-compat shim → re-exports infrastructure/
 ├── http.py                    # Backward-compat shim → re-exports infrastructure/

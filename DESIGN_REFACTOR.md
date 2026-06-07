@@ -3,7 +3,7 @@
 ## Goals
 
 - Make the live Flask app easier to use for pricing decisions and source debugging.
-- Standardize the UI vocabulary across Dashboard, My Cards, Card Detail, Repricing Queue, Sold Cards, and Opportunities.
+- Standardize the UI vocabulary across Dashboard, Store Listings, Inventory, Card Detail, Repricing Queue, Sold Cards, and Opportunities.
 - Preserve the current Flask + Alpine architecture and existing routes while replacing ad-hoc table rendering with AG Grid.
 - Make Repricing Queue usable as a daily workflow page with action summaries, filters, sorting, and suggested prices.
 - Keep future frontend refactors reproducible by documenting the current navigation, data flow, component vocabulary, and visual rules.
@@ -21,11 +21,12 @@ The design should feel like an operational dashboard running on a retro handheld
   - Portfolio and market totals use compact `Rp x.xM` formatting only on dashboard KPIs.
   - `Active Cards` preview shows highest-value active Tokopedia listings.
   - `Repricing Queue` preview shows actionable pricing work first.
-- **My Cards** (`/cards`, `/api/cards`) - full AG Grid inventory review.
-- **Reports** (`/reports`, `/api/reports`) - generated report links and Source Health diagnostics.
-- **Opportunities** (`/opportunities`, `/api/opportunities`) - first-pass buying/import review queue.
+- **Store Listings** (`/cards`, `/api/cards`) - full AG Grid active Tokopedia listing review.
+- **Inventory** (`/inventory`, `/api/inventory`) - owned stock from buy-list conversions and listing lifecycles.
+- **Opportunities** (`/opportunities`, `/api/opportunities`) - persistent buy-list cards with add, detail, and conversion workflow.
 - **Repricing Queue** (`/repricing`, `/api/repricing`) - full daily pricing action workflow.
 - **Sold Cards** (`/soldcards`, `/api/soldcards`) - sales review and income capture. It shows completed listing lifecycles with sold price, bought price, sold date, and net income.
+- **Reports** (`/reports`, `/api/reports`) - generated report links and Source Health diagnostics.
 
 Source Health intentionally lives in Reports, not Dashboard. Dashboard should stay focused on live store signals and immediate pricing work.
 
@@ -36,23 +37,27 @@ Source Health intentionally lives in Reports, not Dashboard. Dashboard should st
 - `ui-icon` and `nav-icon` for inline SVG icons. Do not add an icon dependency unless the project intentionally moves to a bundled frontend build.
 - `panel` for titled page sections.
 - `table-shell`, `grid-shell`, and `ag-grid-host` for all tabular evidence.
-- `cards-data-grid` for the My Cards AG Grid host.
+- `cards-data-grid` for the Store Listings AG Grid host.
 - `dashboard-preview-grid` and `dashboard-preview-table` for compact dashboard previews.
 - `repricing-controls` and `control-group` for Repricing Queue filter/sort controls.
 - `status-badge` for alert, source, and run-state labels.
 - `field-row`, `field-control`, and `input` for editable controls.
 - `empty-state` for no-data and loading-style messages.
 - `product-card` for sold-card tiles.
+- `opportunityLink` AG Grid renderer for opportunity detail links.
+- `statusBadge` AG Grid renderer for opportunity status and reusable state labels.
 
 ## Page Decisions
 
 - Dashboard surfaces Live Store Signals, Active Cards preview, and Repricing Queue preview. It does not render Source Health.
-- My Cards emphasizes pricing decisions: own price, market average, delta, alert, and trend.
+- Store Listings emphasizes pricing decisions: own price, market average, delta, alert, and trend.
 - Reports owns Source Health and generated report links (`latest.md`, `latest.csv`).
 - Card Detail is a price-review page: action toolbar, search-term editor, Price Review Snapshot, chart/history, suggested prices, identity, and source evidence.
 - Repricing Queue is the daily workflow surface: it summarizes Lower price, Raise price, Missing market data, and Aligned cards, then lets the user filter and sort the actionable queue.
 - Sold Cards reuses the same card/action language as active cards, but focuses on sale analytics. The page starts with `Sales Summary`, then product cards with listing price, sold price, bought price, sold date, net income, `Edit Sale`, and `Mark Active` restock actions.
-- Opportunities remains a review queue, not a buy recommendation engine.
+- Inventory is the owned-stock surface. It combines active listings, sold listing lifecycles, and opportunity conversions so stock can be reviewed separately from scheduler-visible listings.
+- Opportunities is a buy-list workflow. It stores real candidate cards, supports a detail route, and converts candidates into owned inventory or Store Listings when purchased.
+- The generated `reports/opportunities.html` remains a separate static discovery report and should not be treated as the live buy-list source.
 
 ## Dashboard Data Rules
 
@@ -83,6 +88,16 @@ Source Health intentionally lives in Reports, not Dashboard. Dashboard should st
 - `net_income_idr` is manual for now and should not be inferred until marketplace-fee rules are explicitly added.
 - Future marketplace fee analysis should use `sold_price_idr` as the base, then derive fee amount, payout, profit, margin, and ROI without deleting the manually entered net income.
 - Existing sold cards must remain editable because sales data can be backfilled after the item was marked sold by sync.
+
+## Opportunities and Inventory Conversion Rules
+
+- Add Opportunity requires card name, rarity, language, source, source link, and observed price.
+- Opportunity rows link to `/opportunities/<slug>` using the same SPA routing style as card details.
+- Convert Opportunity requires a bought price. The modal can default it from the opportunity price, but the user can override it.
+- Conversion with no listing URL creates owned inventory only. It should appear on Inventory, not Store Listings, Repricing Queue, or scheduler runs.
+- Conversion with both Tokopedia listing URL and listing price creates owned inventory plus an active Store Listing. This writes to SQLite and appends a scheduler-compatible product to `config/products.json`.
+- Do not allow converting an already converted opportunity or adding a duplicate active listing URL.
+- Keep converted opportunities visible with a converted status so buying decisions remain auditable.
 
 ## AG Grid Migration
 
@@ -117,13 +132,15 @@ Source Health intentionally lives in Reports, not Dashboard. Dashboard should st
 - `python3 -m unittest discover -s tests`
 - `python3 -m compileall -q pokemon_price_scheduler tests`
 - Start the live app with `flask --app pokemon_price_scheduler.web run --host 127.0.0.1 --port 5010` or the local project restart workflow.
-- Check Dashboard, My Cards, Reports, Card Detail, Repricing Queue, Sold Cards, and Opportunities.
+- Check Dashboard, Store Listings, Inventory, Opportunities, Repricing Queue, Sold Cards, Reports, and Card Detail.
 - On Dashboard, confirm Live Store Signals, Active Cards preview, Repricing Queue preview, compact `Rp x.xM` KPI values, and inline SVG menu icons.
 - On Reports, confirm Source Health renders there and not on Dashboard.
-- Confirm AG Grid sorting/filtering/pagination work on My Cards, Source Evidence, and Repricing Queue.
+- Confirm AG Grid sorting/filtering/pagination work on Store Listings, Inventory, Opportunities, Source Evidence, and Repricing Queue.
+- Add an opportunity, open its detail page, convert it to inventory only, and confirm it appears on Inventory without appearing on Store Listings.
+- Convert another opportunity with Tokopedia URL and listing price, then confirm it appears on Inventory, Store Listings, and Repricing Queue.
 - Confirm Repricing Queue summary counts, action filters, and sort controls update the grid correctly.
-- Mark an active card sold and confirm it disappears from My Cards/Repricing Queue, appears in Sold Cards, and saves sold price, bought price, sold date, and net income.
+- Mark an active card sold and confirm it disappears from Store Listings/Repricing Queue, appears in Sold Cards, and saves sold price, bought price, sold date, and net income.
 - Edit an existing sold card and confirm the same sale fields update in Sold Cards.
-- Restock a sold card with Mark Active and confirm the old sale remains visible while the card returns to My Cards as a new active lifecycle.
+- Restock a sold card with Mark Active and confirm the old sale remains visible while the card returns to Store Listings as a new active lifecycle.
 - Trigger scheduler and single-card refresh; buttons should disable/show progress.
 - Confirm source failures render as status badges on Reports.

@@ -59,7 +59,7 @@ pokemon_price_scheduler/
 │   └── vendor/ag-grid/        # Vendored AG Grid Community runtime and theme assets
 │
 ├── cli.py                       # CLI: run, sync-store, seed-config
-├── inventory.py                 # SQLite cards/listings/sales model for sold-card income tracking
+├── inventory.py                 # SQLite cards/listings/sales/opportunities/inventory model
 ├── ui_components.py             # Shared live-app HTML/AG Grid component builders
 ├── web.py                       # Flask app (serves SPA + API endpoints)
 ├── config.py                    # JSON config load/save for products.json
@@ -93,10 +93,12 @@ SQLite stores both run trace data and daily workflow data:
 - `cards` - stable parsed card identity records for inventory/sales
 - `listings` - Tokopedia listing lifecycles linked to cards
 - `sales` - completed sale records with sold date, sold price, bought price, and net income
+- `opportunities` - persistent buy-list candidates with source/link/price and conversion audit fields
+- `inventory_items` - owned stock records created from opportunities and linked to optional listings
 
 `price_history` records `card_id`, `tokopedia_price`, `market_avg_price`, `delta_percent`, `alert_status`, `source_summary`, and `created_at`. It also stores run/result references where available. Snapshots are inserted from both the legacy `save_run()` path and the v2 `TraceStore.save_results()` path, so scheduler runs update history regardless of which persistence path is used.
 
-`inventory.py` owns the `cards` / `listings` / `sales` schema. During this transition, `config/products.json` remains scheduler-compatible source config, while SQLite is the source of truth for sale analytics. Web mutations mirror lifecycle changes into both places.
+`inventory.py` owns the `cards` / `listings` / `sales` / `opportunities` / `inventory_items` schema. During this transition, `config/products.json` remains scheduler-compatible source config, while SQLite is the source of truth for sale analytics, opportunity audit history, and owned inventory. Web mutations mirror lifecycle changes into both places when a listing must be scheduler-visible.
 
 ### Inventory and Sales Lifecycle
 
@@ -106,6 +108,16 @@ SQLite stores both run trace data and daily workflow data:
 - Restocking a sold card creates a new active listing lifecycle and preserves the prior sold listing and sale row.
 - Sale fields currently captured: `sold_at`, `sold_price_idr`, `bought_at_price_idr`, and `net_income_idr`.
 - Net income is manual. Sold price and bought price are stored separately to support future marketplace fee, profit, margin, and ROI calculations.
+
+### Opportunities and Owned Inventory
+
+- The live `/opportunities` page is a persistent buy list, separate from the generated `reports/opportunities.html` discovery report.
+- An opportunity captures card name, rarity, language, source, source link, and observed buy price.
+- `/opportunities/<slug>` shows a detail-page layout with a conversion action.
+- Conversion always creates an `inventory_items` row with the confirmed bought price.
+- If conversion includes both Tokopedia listing URL and listing price, the app also appends an active product to `config/products.json` and creates a SQLite `listing` lifecycle for Store Listings/Repricing Queue.
+- If listing URL and listing price are omitted, conversion records owned inventory only. The item appears on `/inventory` but not in Store Listings, scheduler runs, or Repricing Queue.
+- Converted opportunities are marked `converted` and keep `converted_at`, `converted_card_id`, `converted_listing_id`, and `converted_inventory_item_id` for auditability.
 
 ### Background Scheduler via Subprocess + SSE
 
@@ -127,7 +139,7 @@ SQLite stores both run trace data and daily workflow data:
 ### SPA + API Backend
 
 `web.py` serves two roles simultaneously:
-1. **Static file server** — `static/index.html` for all SPA routes (`/`, `/cards`, `/cards/<slug>`, `/reports`, `/opportunities`, `/repricing`, `/soldcards`)
+1. **Static file server** — `static/index.html` for all SPA routes (`/`, `/cards`, `/cards/<slug>`, `/inventory`, `/reports`, `/opportunities`, `/opportunities/<slug>`, `/repricing`, `/soldcards`)
 2. **API backend** — HTML fragments and JSON at `/api/*` endpoints fetched by the SPA via `fetch()`
 
 The live app uses a retro handheld design system in `static/index.html`: LCD-green panels, square controls, inline SVG menu/KPI icons, dense AG Grid tables, and compact dashboard previews. Server-rendered fragments are built in `ui_components.py`.
@@ -194,17 +206,21 @@ Main output of a run. Fields: `product`, `run_at`, `source_results[]`, `market_m
 | Route | Method | Purpose |
 |---|---|---|
 | `/` | GET | Serves `static/index.html` |
-| `/cards`, `/cards/<slug>`, `/reports`, `/repricing`, `/opportunities`, `/soldcards` | GET | SPA routing — all serve `static/index.html` |
+| `/cards`, `/cards/<slug>`, `/inventory`, `/reports`, `/repricing`, `/opportunities`, `/opportunities/<slug>`, `/soldcards` | GET | SPA routing — all serve `static/index.html` |
 | `/api/dashboard` | GET | Dashboard Live Store Signals, Active Cards preview, and Repricing Queue preview |
 | `/api/cards` | GET | Cards grid HTML fragment |
 | `/api/cards/<slug>` | GET | Card detail HTML fragment |
+| `/api/inventory` | GET | Owned inventory grid from active/sold listing lifecycles and converted opportunities |
 | `/api/reports` | GET | Reports page HTML fragment with report links and Source Health |
 | `/api/repricing` | GET | Repricing Queue HTML fragment |
 | `/api/cards/<slug>/mark-sold` | POST | Mark active listing sold and record sold price, bought price, sold date, and net income |
 | `/api/cards/<slug>/sale-details` | POST | Edit sale details for existing sold cards |
 | `/api/cards/<slug>/revert-sold` | PUT | Restock a sold card by creating a new active listing lifecycle |
 | `/api/cards/<slug>/update-price` | PUT | Fetch current Tokopedia listing price |
-| `/api/opportunities` | GET | Opportunities table HTML fragment |
+| `/api/opportunities` | GET | Persistent buy-list opportunities table HTML fragment |
+| `/api/opportunities` | POST | Create a new buy-list opportunity |
+| `/api/opportunities/<slug>` | GET | Opportunity detail fragment |
+| `/api/opportunities/<slug>/convert` | POST | Convert opportunity into owned inventory, and optionally an active Store Listing |
 | `/api/soldcards` | GET | Sold cards grid HTML fragment |
 | `/api/products/sync` | POST | Sync new products from Tokopedia store page |
 | `/api/cards/add` | POST | Add new card by URL |
@@ -257,9 +273,10 @@ Single HTML file with:
 - **AG Grid adapter**: reads `data-columns` and `data-rows` from generated fragments, creates grids, and stores APIs in `window._agGridById`
 - **Repricing controls**: `filterRepricing(action)` and `sortRepricing(mode)` call AG Grid filter/sort APIs for the daily queue
 - **EventSource (`/run/status`)**: SSE client for live scheduler progress
-- **Modals**: Add Card modal (URL + keyword inputs)
+- **Modals**: Add Card modal (URL + keyword inputs), Add Opportunity modal, Convert Opportunity modal
 - **Sale modals**: Mark Sold/Edit Sale modal (sold date, sold price, bought price, net income)
 - **Toast system**: `showToast(message, type)` with success/error/info variants
+- **Opportunity operations**: `submitOpportunity()` creates buy-list rows; `submitConvertOpportunity()` converts them into inventory and optional Store Listings
 - **Scheduler operations**: `refreshCard()`, `syncNewProducts()`, `addCard()`, `updateSearchTerm()`, `revertSold()`, `updatePrice()`, `submitMarkSold()`
 
 ---

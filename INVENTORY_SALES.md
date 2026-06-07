@@ -167,14 +167,15 @@ When adding calculated fields, keep manual `net_income_idr` available as an over
 ## Compatibility Notes
 
 - The scheduler still reads products from `config/products.json`.
-- Dashboard, Cards, and Repricing Queue continue to filter active listings from config.
+- Dashboard, Store Listings, and Repricing Queue continue to filter active listings from config.
 - Sold Cards and sale summaries read from SQLite after syncing config products into inventory tables.
+- Opportunities can create inventory-only rows or active listing rows. See `OPPORTUNITIES_INVENTORY.md` for the buy-list conversion workflow.
 - Tests should cover both config state and SQLite inventory state after each lifecycle mutation.
 
 ## Regression Checklist
 
 - Mark Sold requires sold date, sold price, bought price, and net income.
-- Mark Sold removes the item from My Cards and Repricing Queue.
+- Mark Sold removes the item from Store Listings and Repricing Queue.
 - Mark Sold creates a `sales` row.
 - Edit Sale updates existing sold cards without creating duplicate sales.
 - Restock creates a new active listing lifecycle while preserving the old sale.
