@@ -42,9 +42,17 @@ class Product:
             identity = self.card_identity
             parts = [identity.name, identity.rarity, identity.set_symbol,
                      identity.card_number, identity.condition]
-            s = "-".join(p.lower().replace(" ", "-") for p in parts if p)
-            s = re.sub(r"[^a-z0-9-]", "", s)
-            s = re.sub(r"-+", "-", s).strip("-")[:90]
+            tokens: list[str] = []
+            for part in parts:
+                if not part:
+                    continue
+                part_tokens = [token for token in re.sub(r"[^a-z0-9]+", "-", part.lower()).split("-") if token]
+                if not part_tokens:
+                    continue
+                if tokens[-len(part_tokens):] == part_tokens:
+                    continue
+                tokens.extend(part_tokens)
+            s = "-".join(tokens)[:90]
             self._slug_cache["slug"] = s or "product"
         return self._slug_cache["slug"]
 

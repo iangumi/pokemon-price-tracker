@@ -7,15 +7,17 @@ import threading
 import json
 from pathlib import Path
 
-from ..domain.models import ProductAnalysis
+from ..domain.models import ProductAnalysis, utc_now
 
 DB_PATH = Path("data/price_history.sqlite3")
 
 _local = threading.local()
 
 
-def connect(path: Path = DB_PATH) -> sqlite3.Connection:
+def connect(path: Path | None = None) -> sqlite3.Connection:
     """Return a thread-local connection, creating it if needed."""
+    if path is None:
+        path = DB_PATH
     if not hasattr(_local, "conn") or _local.conn is None:
         path.parent.mkdir(parents=True, exist_ok=True)
         _local.conn = sqlite3.connect(path, check_same_thread=False)
@@ -156,28 +158,73 @@ def save_run(analyses: list[ProductAnalysis]) -> int:
                         obs.relevance_score,
                     ),
                 )
-        _insert_price_snapshot(conn, run_id, result_id, analysis, run_at)
+        _upsert_price_snapshot(
+            conn,
+            card_id=analysis.product.slug,
+            tokopedia_price=analysis.product.own_price_idr,
+            market_avg_price=analysis.global_average_idr,
+            delta_percent=analysis.price_delta_percent,
+            alert_status=analysis.alert_level,
+            source_summary=_source_summary(analysis),
+            created_at=run_at,
+            run_id=run_id,
+            product_result_id=result_id,
+        )
     conn.commit()
     return run_id
 
 
-def _insert_price_snapshot(
+def record_price_snapshot(
+    *,
+    card_id: str,
+    tokopedia_price: int,
+    market_avg_price: int | None = None,
+    delta_percent: float | None = None,
+    alert_status: str = "none",
+    source_summary: str = "",
+    run_id: int | None = None,
+    product_result_id: int | None = None,
+    created_at: str | None = None,
+) -> None:
+    conn = connect()
+    _upsert_price_snapshot(
+        conn,
+        card_id=card_id,
+        tokopedia_price=tokopedia_price,
+        market_avg_price=market_avg_price,
+        delta_percent=delta_percent,
+        alert_status=alert_status,
+        source_summary=source_summary,
+        created_at=created_at or utc_now().isoformat(),
+        run_id=run_id,
+        product_result_id=product_result_id,
+    )
+    conn.commit()
+
+
+def _upsert_price_snapshot(
     conn: sqlite3.Connection,
-    run_id: int,
-    result_id: int,
-    analysis: ProductAnalysis,
+    *,
+    card_id: str,
+    tokopedia_price: int,
+    market_avg_price: int | None = None,
+    delta_percent: float | None = None,
+    alert_status: str = "none",
+    source_summary: str = "",
     created_at: str,
+    run_id: int | None = None,
+    product_result_id: int | None = None,
 ) -> None:
     values = (
         run_id,
-        result_id,
-        analysis.product.own_price_idr,
-        analysis.global_average_idr,
-        analysis.price_delta_percent,
-        analysis.alert_level,
-        _source_summary(analysis),
+        product_result_id,
+        tokopedia_price,
+        market_avg_price,
+        delta_percent,
+        alert_status,
+        source_summary,
         created_at,
-        analysis.product.slug,
+        card_id,
         created_at,
     )
     cursor = conn.execute(
@@ -207,13 +254,13 @@ def _insert_price_snapshot(
         """,
         (
             run_id,
-            result_id,
-            analysis.product.slug,
-            analysis.product.own_price_idr,
-            analysis.global_average_idr,
-            analysis.price_delta_percent,
-            analysis.alert_level,
-            _source_summary(analysis),
+            product_result_id,
+            card_id,
+            tokopedia_price,
+            market_avg_price,
+            delta_percent,
+            alert_status,
+            source_summary,
             created_at,
         ),
     )

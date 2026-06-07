@@ -363,7 +363,7 @@ def extract_store_products(html_text: str, min_price_idr: int) -> list[dict[str,
         title = decode_jsonish(match.group("title"))
         url = decode_jsonish(match.group("url"))
         price_id = match.group("price_id")
-        price_match = _STORE_PRICE_REF_RE.search(html_text)
+        price_match = re.search(re.escape(price_id) + r'":\{"text_idr":"(?P<price>Rp[\d.]+)"', html_text)
         if not price_match:
             continue
         price = parse_price_to_idr(price_match.group("price"))
