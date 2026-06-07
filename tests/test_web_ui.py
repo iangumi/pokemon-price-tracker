@@ -3,13 +3,17 @@ import json
 import re
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
 import pokemon_price_scheduler.web as web
+from pokemon_price_scheduler.config import load_config
+from pokemon_price_scheduler.inventory import connect as connect_inventory, income_summary, sold_card_rows
 from pokemon_price_scheduler.infrastructure import history as history_store
 from pokemon_price_scheduler.history import close_connection
 from pokemon_price_scheduler.models import Product
+from pokemon_price_scheduler.scrapers import extract_store_products
 from pokemon_price_scheduler.ui_components import repricing_queue_fragment
 
 
@@ -158,7 +162,40 @@ class WebUiTests(unittest.TestCase):
             "Price History",
             "Card Identity",
             "Source Evidence",
+            "Mark Sold",
         )
+        response = self.client.get(f"/api/cards/{self.active.slug}")
+        html_text = response.get_data(as_text=True)
+        self.assertIn('onclick="updateSearchTerm(&quot;', html_text)
+        self.assertLess(html_text.index("Price Review Snapshot"), html_text.index("Card Identity"))
+        self.assertIn("identity-layout", html_text)
+
+    def test_card_detail_renders_cached_image_in_identity_panel(self):
+        with patch.object(web, "_ensure_card_image", return_value=f"/card-images/{self.active.slug}"):
+            response = self.client.get(f"/api/cards/{self.active.slug}")
+
+        self.assertEqual(response.status_code, 200)
+        html_text = response.get_data(as_text=True)
+        self.assertIn('class="card-image"', html_text)
+        self.assertIn(f'/card-images/{self.active.slug}', html_text)
+
+    def test_card_image_route_serves_cached_binary(self):
+        image_dir = Path(self.tmp.name) / "card-images"
+        image_dir.mkdir(parents=True)
+        image_path = image_dir / f"{self.active.slug}.bin"
+        meta_path = image_dir / f"{self.active.slug}.json"
+        image_path.write_bytes(b"fakeimagebytes")
+        meta_path.write_text(
+            json.dumps({"content_type": "image/webp"}),
+            encoding="utf-8",
+        )
+
+        with patch.object(web, "CARD_IMAGES_DIR", image_dir):
+            response = self.client.get(f"/card-images/{self.active.slug}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "image/webp")
+        self.assertEqual(response.get_data(), b"fakeimagebytes")
 
     def test_card_detail_renders_price_history_metrics_table_and_chart(self):
         history_rows = [
@@ -203,6 +240,30 @@ class WebUiTests(unittest.TestCase):
         self.assertIn("+3.4%", html_text)
         self.assertIn("price-history-chart", html_text)
         self.assertIn("data-rows", html_text)
+
+    def test_card_detail_falls_back_to_current_price_when_latest_snapshot_is_zero(self):
+        history_rows = [
+            {
+                "card_id": self.active.slug,
+                "tokopedia_price": 0,
+                "market_avg_price": 880000,
+                "delta_percent": -14.8,
+                "alert_status": "none",
+                "source_summary": "",
+                "created_at": "2026-06-04T07:35:45+00:00",
+            }
+        ]
+
+        with (
+            patch.object(web, "price_history_for_slug", return_value=history_rows),
+            patch.object(web, "price_trend_for_slug", side_effect=[None, None]),
+        ):
+            response = self.client.get(f"/api/cards/{self.active.slug}")
+
+        self.assertEqual(response.status_code, 200)
+        html_text = response.get_data(as_text=True)
+        self.assertIn("Rp 750.000", html_text)
+        self.assertNotIn("Rp 0", html_text)
 
     def test_repricing_queue_route_uses_panel(self):
         self.assert_fragment_has(
@@ -257,6 +318,382 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(captured["active_slugs"], {self.active.slug})
         self.assertNotIn(self.sold.slug, captured["active_slugs"])
+
+    def test_add_card_uses_listing_title_when_available(self):
+        listing_html = """
+        <html>
+          <head>
+            <meta property="og:title" content="Shiny Pikachu PSA 10 | Tokopedia">
+          </head>
+          <body>
+            <span data-testid="price">Rp 500.000</span>
+          </body>
+        </html>
+        """
+        history_db = Path(self.tmp.name) / "history.sqlite3"
+
+        with patch.object(web, "fetch_text", return_value=listing_html), patch.object(history_store, "DB_PATH", history_db):
+            close_connection()
+            response = self.client.post(
+                "/api/cards/add",
+                json={
+                    "tokopedia_url": "https://www.tokopedia.com/example/shiny-pikachu",
+                    "search_keyword": "shiny pikachu psa 10",
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["slug"], "shiny-pikachu-psa-10")
+
+        _, products = load_config(self.config_path)
+        added = next((product for product in products if product.tokopedia_url == "https://www.tokopedia.com/example/shiny-pikachu"), None)
+        self.assertIsNotNone(added)
+        self.assertEqual(added.title, "Shiny Pikachu PSA 10")
+        self.assertEqual(added.own_price_idr, 500000)
+
+        history_rows = history_store.price_history_for_slug("shiny-pikachu-psa-10")
+        self.assertEqual(len(history_rows), 1)
+        self.assertEqual(history_rows[0]["tokopedia_price"], 500000)
+
+    def test_store_parser_uses_product_specific_price_id(self):
+        html_text = """
+        <script>
+        {"name":"First Card","product_url":"https://www.tokopedia.com/shop/first","price":{"type":"id","generated":true,"id":"Product:1.price"}}
+        {"name":"Second Card","product_url":"https://www.tokopedia.com/shop/second","price":{"type":"id","generated":true,"id":"Product:2.price"}}
+        "Product:1.price":{"text_idr":"Rp750.000"}
+        "Product:2.price":{"text_idr":"Rp20.000.000"}
+        </script>
+        """
+
+        products = extract_store_products(html_text, min_price_idr=0)
+
+        by_title = {product["title"]: product for product in products}
+        self.assertEqual(by_title["First Card"]["own_price_idr"], 750000)
+        self.assertEqual(by_title["Second Card"]["own_price_idr"], 20000000)
+
+    def test_sync_store_reconciles_prices_repairs_and_sold_status(self):
+        self.config_path.write_text(
+            json.dumps(
+                {
+                    "settings": {"min_own_price_idr": 0},
+                    "products": [
+                        {
+                            "title": "Bad Price Card",
+                            "own_price_idr": 20000000,
+                            "tokopedia_url": "https://www.tokopedia.com/shop/bad-card?extParam=old",
+                            "search_terms": [],
+                            "sources": [],
+                            "status": "active",
+                            "sold_at": "",
+                        },
+                        {
+                            "title": "Kept Card",
+                            "own_price_idr": 100000,
+                            "tokopedia_url": "https://www.tokopedia.com/shop/kept-card?whid=old",
+                            "search_terms": [],
+                            "sources": [],
+                            "status": "active",
+                            "sold_at": "",
+                        },
+                        {
+                            "title": "Missing Card",
+                            "own_price_idr": 300000,
+                            "tokopedia_url": "https://www.tokopedia.com/shop/missing-card",
+                            "search_terms": [],
+                            "sources": [],
+                            "status": "active",
+                            "sold_at": "",
+                        },
+                        {
+                            "title": "Already Sold Card",
+                            "own_price_idr": 400000,
+                            "tokopedia_url": "https://www.tokopedia.com/shop/already-sold",
+                            "search_terms": [],
+                            "sources": [],
+                            "status": "sold",
+                            "sold_at": "2026-06-01T00:00:00+00:00",
+                        },
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        store_products = [
+            {
+                "title": "Bad Price Card",
+                "own_price_idr": 500000,
+                "tokopedia_url": "https://www.tokopedia.com/shop/bad-card?extParam=new",
+            },
+            {
+                "title": "Kept Card",
+                "own_price_idr": 125000,
+                "tokopedia_url": "https://www.tokopedia.com/shop/kept-card?whid=new",
+            },
+            {
+                "title": "Already Sold Card",
+                "own_price_idr": 450000,
+                "tokopedia_url": "https://www.tokopedia.com/shop/already-sold",
+            },
+            {
+                "title": "New Store Card",
+                "own_price_idr": 750000,
+                "tokopedia_url": "https://www.tokopedia.com/shop/new-store-card",
+            },
+        ]
+
+        with patch("pokemon_price_scheduler.store_sync.get_active_store_product_urls_with_details", return_value=store_products):
+            response = self.client.post("/api/products/sync")
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json()
+        self.assertEqual(payload["added_count"], 1)
+        self.assertEqual(payload["updated_count"], 2)
+        self.assertEqual(payload["repaired_count"], 1)
+        self.assertEqual(payload["sold_count"], 1)
+
+        _, products = load_config(self.config_path)
+        by_title = {product.title: product for product in products}
+        self.assertEqual(by_title["Bad Price Card"].own_price_idr, 500000)
+        self.assertEqual(by_title["Kept Card"].own_price_idr, 125000)
+        self.assertEqual(by_title["Missing Card"].status, "sold")
+        self.assertTrue(by_title["Missing Card"].sold_at)
+        self.assertEqual(by_title["Already Sold Card"].status, "sold")
+        self.assertEqual(by_title["Already Sold Card"].own_price_idr, 400000)
+        self.assertIn("New Store Card", by_title)
+
+    def test_mark_sold_records_required_sale_fields_and_moves_to_sold_page(self):
+        response = self.client.post(
+            f"/api/cards/{self.active.slug}/mark-sold",
+            json={
+                "sold_at": "2026-06-07",
+                "sold_price_idr": "900000",
+                "bought_at_price_idr": "300000",
+                "net_income_idr": "650000",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+
+        _, products = load_config(self.config_path)
+        by_slug = {product.slug: product for product in products}
+        self.assertEqual(by_slug[self.active.slug].status, "sold")
+        self.assertEqual(by_slug[self.active.slug].sold_at, "2026-06-07T00:00:00+00:00")
+
+        sold_html = self.client.get("/api/soldcards").get_data(as_text=True)
+        cards_html = self.client.get("/api/cards").get_data(as_text=True)
+        repricing_html = self.client.get("/api/repricing").get_data(as_text=True)
+        self.assertIn("Sales Summary", sold_html)
+        self.assertIn("Bought price", sold_html)
+        self.assertIn("Sold price", sold_html)
+        self.assertIn("Rp 300.000", sold_html)
+        self.assertIn("Rp 900.000", sold_html)
+        self.assertIn("Rp 650.000", sold_html)
+        self.assertIn(self.active.slug, sold_html)
+        self.assertNotIn(self.active.slug, cards_html)
+        self.assertNotIn(self.active.slug, repricing_html)
+
+        rows = sold_card_rows(web._inventory_db_path())
+        self.assertEqual(rows[0]["bought_at_price_idr"], 300000)
+        self.assertEqual(rows[0]["sold_price_idr"], 900000)
+        self.assertEqual(rows[0]["net_income_idr"], 650000)
+        summary = income_summary(web._inventory_db_path())
+        self.assertEqual(summary["sold_count"], 1)
+        self.assertEqual(summary["net_income_idr"], 650000)
+
+    def test_mark_sold_requires_bought_price_and_net_income(self):
+        response = self.client.post(
+            f"/api/cards/{self.active.slug}/mark-sold",
+            json={"sold_at": "2026-06-07", "net_income_idr": "650000", "bought_at_price_idr": "300000"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Sold price is required", response.get_json()["error"])
+
+    def test_existing_sold_card_sale_details_can_be_updated(self):
+        response = self.client.post(
+            f"/api/cards/{self.sold.slug}/sale-details",
+            json={
+                "sold_at": "2026-06-07",
+                "sold_price_idr": "700000",
+                "bought_at_price_idr": "200000",
+                "net_income_idr": "450000",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        _, products = load_config(self.config_path)
+        by_slug = {product.slug: product for product in products}
+        self.assertEqual(by_slug[self.sold.slug].status, "sold")
+        self.assertEqual(by_slug[self.sold.slug].sold_at, "2026-06-07T00:00:00+00:00")
+
+        sold_html = self.client.get("/api/soldcards").get_data(as_text=True)
+        self.assertIn("Rp 200.000", sold_html)
+        self.assertIn("Rp 700.000", sold_html)
+        self.assertIn("Rp 450.000", sold_html)
+        self.assertIn("Edit Sale", sold_html)
+
+    def test_restock_keeps_sold_sale_history_and_creates_active_listing_lifecycle(self):
+        self.client.post(
+            f"/api/cards/{self.active.slug}/mark-sold",
+            json={
+                "sold_at": "2026-06-07",
+                "sold_price_idr": "900000",
+                "bought_at_price_idr": "300000",
+                "net_income_idr": "650000",
+            },
+        )
+
+        response = self.client.put(f"/api/cards/{self.active.slug}/revert-sold")
+        self.assertEqual(response.status_code, 200)
+
+        _, products = load_config(self.config_path)
+        product = next(p for p in products if p.slug == self.active.slug)
+        self.assertEqual(product.status, "active")
+
+        with closing(connect_inventory(web._inventory_db_path())) as conn:
+            lifecycles = conn.execute(
+                "SELECT status, lifecycle FROM listings WHERE slug = ? ORDER BY id",
+                (self.active.slug,),
+            ).fetchall()
+            sale_count = conn.execute(
+                "SELECT COUNT(*) FROM sales WHERE slug = ? AND net_income_idr = 650000",
+                (self.active.slug,),
+            ).fetchone()[0]
+
+        self.assertEqual(lifecycles, [("sold", 1), ("active", 2)])
+        self.assertEqual(sale_count, 1)
+
+    def test_sync_store_dedupes_active_and_sold_duplicates(self):
+        self.config_path.write_text(
+            json.dumps(
+                {
+                    "settings": {"min_own_price_idr": 0},
+                    "products": [
+                        {
+                            "title": "Mew Duplicate",
+                            "own_price_idr": 1000000,
+                            "tokopedia_url": "https://www.tokopedia.com/shop/mew-card?whid=old",
+                            "search_terms": [],
+                            "sources": [],
+                            "status": "sold",
+                            "sold_at": "2026-05-22T00:00:00+00:00",
+                        },
+                        {
+                            "title": "Mew Duplicate",
+                            "own_price_idr": 1000000,
+                            "tokopedia_url": "https://www.tokopedia.com/shop/mew-card?extParam=new",
+                            "search_terms": [],
+                            "sources": [],
+                            "status": "active",
+                            "sold_at": "",
+                        },
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        store_products = [
+            {
+                "title": "Mew Duplicate",
+                "own_price_idr": 1000000,
+                "tokopedia_url": "https://www.tokopedia.com/shop/mew-card?src=shop",
+            }
+        ]
+
+        with patch("pokemon_price_scheduler.store_sync.get_active_store_product_urls_with_details", return_value=store_products):
+            response = self.client.post("/api/products/sync")
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json()
+        self.assertEqual(payload["deduped_count"], 1)
+
+        _, products = load_config(self.config_path)
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products[0].status, "active")
+
+        cards_html = self.client.get("/api/cards").get_data(as_text=True)
+        sold_html = self.client.get("/api/soldcards").get_data(as_text=True)
+        self.assertIn("mew-duplicate-raw-nm", cards_html)
+        self.assertNotIn("mew-duplicate-raw-nm", sold_html)
+
+    def test_sync_store_dedupes_active_active_and_sold_sold_duplicates(self):
+        self.config_path.write_text(
+            json.dumps(
+                {
+                    "settings": {"min_own_price_idr": 0},
+                    "products": [
+                        {
+                            "title": "Active Duplicate Old",
+                            "own_price_idr": 100000,
+                            "tokopedia_url": "https://www.tokopedia.com/shop/active-dupe?old=1",
+                            "search_terms": [],
+                            "sources": [],
+                            "status": "active",
+                            "sold_at": "",
+                        },
+                        {
+                            "title": "Active Duplicate New",
+                            "own_price_idr": 200000,
+                            "tokopedia_url": "https://www.tokopedia.com/shop/active-dupe?new=1",
+                            "search_terms": [],
+                            "sources": [],
+                            "status": "active",
+                            "sold_at": "",
+                        },
+                        {
+                            "title": "Sold Duplicate Old",
+                            "own_price_idr": 300000,
+                            "tokopedia_url": "https://www.tokopedia.com/shop/sold-dupe?old=1",
+                            "search_terms": [],
+                            "sources": [],
+                            "status": "sold",
+                            "sold_at": "2026-05-01T00:00:00+00:00",
+                        },
+                        {
+                            "title": "Sold Duplicate New",
+                            "own_price_idr": 400000,
+                            "tokopedia_url": "https://www.tokopedia.com/shop/sold-dupe?new=1",
+                            "search_terms": [],
+                            "sources": [],
+                            "status": "sold",
+                            "sold_at": "2026-06-01T00:00:00+00:00",
+                        },
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        store_products = [
+            {
+                "title": "Active Duplicate New",
+                "own_price_idr": 200000,
+                "tokopedia_url": "https://www.tokopedia.com/shop/active-dupe",
+            },
+            {
+                "title": "Sold Duplicate New",
+                "own_price_idr": 400000,
+                "tokopedia_url": "https://www.tokopedia.com/shop/sold-dupe",
+            },
+        ]
+
+        with patch("pokemon_price_scheduler.store_sync.get_active_store_product_urls_with_details", return_value=store_products):
+            response = self.client.post("/api/products/sync")
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json()
+        self.assertEqual(payload["deduped_count"], 2)
+
+        _, products = load_config(self.config_path)
+        by_title = {product.title: product for product in products}
+        self.assertEqual(len(products), 2)
+        self.assertIn("Active Duplicate New", by_title)
+        self.assertIn("Sold Duplicate New", by_title)
+        self.assertEqual(by_title["Active Duplicate New"].status, "active")
+        self.assertEqual(by_title["Sold Duplicate New"].status, "sold")
 
     def test_repricing_queue_fragment_renders_actions_and_suggestions(self):
         html_text = repricing_queue_fragment(

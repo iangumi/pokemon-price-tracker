@@ -1297,6 +1297,61 @@
       document.getElementById('add-card-modal').classList.remove('open');
     }
 
+    function openMarkSoldModal(slug) {
+      document.getElementById('mark-sold-slug').value = slug || '';
+      document.getElementById('mark-sold-mode').value = 'mark';
+      document.getElementById('mark-sold-title').textContent = 'Mark Sold';
+      document.getElementById('mark-sold-submit').textContent = 'Mark Sold';
+      document.getElementById('sold-date-input').value = new Date().toISOString().slice(0, 10);
+      document.getElementById('sold-price-input').value = '';
+      document.getElementById('bought-price-input').value = '';
+      document.getElementById('net-income-input').value = '';
+      document.getElementById('mark-sold-modal').classList.add('open');
+    }
+
+    function openEditSaleModal(slug, soldAt, soldPrice, boughtPrice, netIncome) {
+      document.getElementById('mark-sold-slug').value = slug || '';
+      document.getElementById('mark-sold-mode').value = 'edit';
+      document.getElementById('mark-sold-title').textContent = 'Edit Sale';
+      document.getElementById('mark-sold-submit').textContent = 'Save Sale';
+      document.getElementById('sold-date-input').value = soldAt || new Date().toISOString().slice(0, 10);
+      document.getElementById('sold-price-input').value = soldPrice || '';
+      document.getElementById('bought-price-input').value = boughtPrice || '';
+      document.getElementById('net-income-input').value = netIncome || '';
+      document.getElementById('mark-sold-modal').classList.add('open');
+    }
+
+    function closeMarkSoldModal() {
+      document.getElementById('mark-sold-modal').classList.remove('open');
+    }
+
+    async function submitMarkSold() {
+      var slug = document.getElementById('mark-sold-slug').value;
+      var mode = document.getElementById('mark-sold-mode').value || 'mark';
+      var soldAt = document.getElementById('sold-date-input').value;
+      var soldPrice = document.getElementById('sold-price-input').value;
+      var boughtPrice = document.getElementById('bought-price-input').value;
+      var netIncome = document.getElementById('net-income-input').value;
+      if (!slug || !soldAt || !soldPrice || !boughtPrice || !netIncome) {
+        showToast('Sold date, sold price, bought price, and net income are required', 'error');
+        return;
+      }
+      var endpoint = mode === 'edit' ? '/sale-details' : '/mark-sold';
+      var res = await fetch('/api/cards/' + encodeURIComponent(slug) + endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sold_at: soldAt, sold_price_idr: soldPrice, bought_at_price_idr: boughtPrice, net_income_idr: netIncome })
+      });
+      var data = await res.json();
+      if (!data.ok) {
+        showToast(data.error || 'Failed to mark sold', 'error');
+        return;
+      }
+      closeMarkSoldModal();
+      showToast((mode === 'edit' ? 'Sale updated: ' : 'Marked sold: ') + data.title, 'ok');
+      window._app.navigateTo('/soldcards');
+    }
+
     async function submitAddCard() {
       var tokopediaUrl = document.getElementById('new-card-url').value.trim();
       var searchKeyword = document.getElementById('new-card-keyword').value.trim();
@@ -1359,11 +1414,16 @@
     async function syncNewProducts() {
       var res = await fetch('/api/products/sync', { method: 'POST' });
       var data = await res.json();
-      if (data.ok && data.added_count > 0) {
-        showToast('Added ' + data.added_count + ' new product(s)', 'ok');
+      if (data.ok) {
+        var total = (data.added_count || 0) + (data.updated_count || 0) + (data.sold_count || 0) + (data.deduped_count || 0);
+        var parts = [];
+        if (data.added_count) parts.push('added ' + data.added_count);
+        if (data.updated_count) parts.push('updated ' + data.updated_count);
+        if (data.repaired_count) parts.push('repaired ' + data.repaired_count);
+        if (data.sold_count) parts.push('sold ' + data.sold_count);
+        if (data.deduped_count) parts.push('deduped ' + data.deduped_count);
+        showToast(total ? 'Store synced: ' + parts.join(', ') : 'Store synced: no changes', 'ok');
         window._app.navigateTo('/cards');
-      } else if (data.ok && data.added_count === 0) {
-        showToast('No new products found on store page', 'ok');
       } else {
         showToast(data.error || 'Sync failed', 'error');
       }
@@ -1401,6 +1461,25 @@
       <div class="modal-actions">
         <button class="btn" onclick="closeAddCardModal()">Cancel</button>
         <button class="btn" onclick="submitAddCard()">Add Card</button>
+      </div>
+    </div>
+  </div>
+  <div id="mark-sold-modal" class="modal-overlay" x-data="{}">
+    <div class="modal">
+      <h2 id="mark-sold-title">Mark Sold</h2>
+      <input id="mark-sold-slug" type="hidden">
+      <input id="mark-sold-mode" type="hidden" value="mark">
+      <label>Sold Date</label>
+      <input id="sold-date-input" type="date">
+      <label>Sold Price</label>
+      <input id="sold-price-input" type="text" inputmode="numeric" placeholder="2500000">
+      <label>Bought Price</label>
+      <input id="bought-price-input" type="text" inputmode="numeric" placeholder="1500000">
+      <label>Net Income</label>
+      <input id="net-income-input" type="text" inputmode="numeric" placeholder="2200000">
+      <div class="modal-actions">
+        <button class="btn" onclick="closeMarkSoldModal()">Cancel</button>
+        <button id="mark-sold-submit" class="btn" onclick="submitMarkSold()">Mark Sold</button>
       </div>
     </div>
   </div>

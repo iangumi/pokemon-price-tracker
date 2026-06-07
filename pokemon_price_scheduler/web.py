@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import os
+import html
+import json
 import re
 import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urljoin, urlparse
+import urllib.error
+import urllib.request
 
 from flask import Flask, Response, jsonify, request
 
@@ -15,10 +20,23 @@ from .history import (
     get_observations_for_slug,
     price_history_for_slug,
     price_trend_for_slug,
+    record_price_snapshot,
     repricing_queue,
     suggested_prices,
 )
+from .http import fetch_text
+from .inventory import (
+    SaleInput,
+    create_restock_listing,
+    income_summary,
+    mark_product_sold,
+    parse_idr,
+    sold_card_rows,
+    sync_products as sync_inventory_products,
+    update_sale_details,
+)
 from .models import Product, Source, utc_now
+from .infrastructure.parsing import clean_text, extract_json_objects, walk_json
 from .reports import idr, pct
 from .ui_components import (
     cards_fragment,
@@ -34,6 +52,7 @@ from .v2.storage import TraceStore
 BASE_DIR = Path(__file__).parent.parent
 STATIC_DIR = BASE_DIR / "static"
 REPORTS_DIR = BASE_DIR / "reports"
+CARD_IMAGES_DIR = BASE_DIR / "data" / "card-images"
 CONFIG_PATH = BASE_DIR / "config" / "products.json"
 
 app = Flask(__name__, template_folder=str(REPORTS_DIR), static_folder=str(STATIC_DIR), static_url_path="")
@@ -47,6 +66,219 @@ _refreshing_slugs: set = set()
 
 def _active_tokopedia_products(products: list[Product]) -> list[Product]:
     return [p for p in products if p.status != "sold" and bool(p.tokopedia_url)]
+
+
+def _inventory_db_path() -> Path:
+    if CONFIG_PATH.parent == BASE_DIR / "config":
+        return BASE_DIR / "data" / "price_history.sqlite3"
+    return CONFIG_PATH.parent / "inventory.sqlite3"
+
+
+def _sync_inventory(settings: dict, products: list[Product]) -> None:
+    sync_inventory_products(products, _inventory_db_path())
+
+
+def _normalized_product_url(url: str) -> str:
+    parsed = urlparse(url)
+    path = parsed.path.rstrip("/")
+    if not path:
+        return ""
+    host = parsed.netloc.lower()
+    return f"{host}{path}" if host else path
+
+
+def _dedupe_products_by_url(products: list[Product]) -> tuple[list[Product], int]:
+    selected_by_url: dict[str, tuple[int, Product]] = {}
+    passthrough: list[tuple[int, Product]] = []
+
+    for index, product in enumerate(products):
+        normalized = _normalized_product_url(product.tokopedia_url)
+        if not normalized:
+            passthrough.append((index, product))
+            continue
+
+        current = selected_by_url.get(normalized)
+        if current is None:
+            selected_by_url[normalized] = (index, product)
+            continue
+
+        _, current_product = current
+        current_active = current_product.status != "sold"
+        incoming_active = product.status != "sold"
+        if incoming_active and not current_active:
+            selected_by_url[normalized] = (index, product)
+        elif incoming_active == current_active:
+            selected_by_url[normalized] = (index, product)
+
+    kept = passthrough + list(selected_by_url.values())
+    kept.sort(key=lambda item: item[0])
+    deduped = [product for _, product in kept]
+    return deduped, len(products) - len(deduped)
+
+
+def _extract_listing_title(html_text: str) -> str:
+    patterns = (
+        r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\'](?P<title>[^"\']+)',
+        r'<meta[^>]+name=["\']title["\'][^>]+content=["\'](?P<title>[^"\']+)',
+        r"<title>(?P<title>.*?)</title>",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, html_text, re.I | re.S)
+        if not match:
+            continue
+        title = html.unescape(match.group("title"))
+        title = re.sub(r"\s*\|\s*Tokopedia\b.*$", "", title, flags=re.I)
+        title = clean_text(title)
+        if title:
+            return title
+    return ""
+
+
+def _extract_tokopedia_price(html_text: str) -> int | None:
+    from .infrastructure.parsing import parse_price_to_idr
+
+    patterns = (
+        r'data-testid="price["\s>][^<>]*?Rp\s?([\d.]+)',
+        r'"text_idr"\s*:\s*"Rp([\d.]+)"',
+        r'"displayPrice"\s*:\s*"Rp([\d.]+)"',
+        r'"priceAmount"\s*:\s*"Rp([\d.]+)"',
+        r'Rp\s?([\d]{1,3}(?:,\d{3})*(?:\.\d+)?)',
+    )
+    for pattern in patterns:
+        match = re.search(pattern, html_text, re.I)
+        if match:
+            price = parse_price_to_idr(match.group(0))
+            if price and price >= 10_000:
+                return price
+
+    for candidate in re.findall(r'Rp\s?[\d.]+', html_text):
+        price = parse_price_to_idr(candidate)
+        if price and price >= 10_000:
+            return price
+
+    for obj in extract_json_objects(html_text):
+        for node in walk_json(obj):
+            if not isinstance(node, dict):
+                continue
+            for key in ("text_idr", "displayPrice", "priceAmount", "price", "minPrice"):
+                value = node.get(key)
+                if isinstance(value, str):
+                    price = parse_price_to_idr(value)
+                    if price and price >= 10_000:
+                        return price
+                elif isinstance(value, dict):
+                    for nested_key in ("text_idr", "text", "price", "priceAmount"):
+                        nested_value = value.get(nested_key)
+                        if isinstance(nested_value, str):
+                            price = parse_price_to_idr(nested_value)
+                            if price and price >= 10_000:
+                                return price
+    return None
+
+
+def _card_image_paths(slug: str) -> tuple[Path, Path]:
+    return CARD_IMAGES_DIR / f"{slug}.bin", CARD_IMAGES_DIR / f"{slug}.json"
+
+
+def _extract_tokopedia_image_url(html_text: str, base_url: str = "") -> str:
+    patterns = (
+        r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\'](?P<url>[^"\']+)',
+        r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\'](?P<url>[^"\']+)',
+        r'"og:image"\s*:\s*"(?P<url>[^"]+)',
+        r'"imageUrl"\s*:\s*"(?P<url>[^"]+)',
+        r'"mainImage"\s*:\s*"(?P<url>[^"]+)',
+        r'"thumbnail"\s*:\s*"(?P<url>[^"]+)',
+    )
+    for pattern in patterns:
+        match = re.search(pattern, html_text, re.I)
+        if match:
+            image_url = html.unescape(match.group("url"))
+            if image_url:
+                return urljoin(base_url, image_url)
+
+    for obj in extract_json_objects(html_text):
+        for node in walk_json(obj):
+            if not isinstance(node, dict):
+                continue
+            for key in ("og:image", "imageUrl", "mainImage", "thumbnail", "image", "picture"):
+                value = node.get(key)
+                if isinstance(value, str) and value.strip():
+                    return urljoin(base_url, html.unescape(value.strip()))
+                if isinstance(value, dict):
+                    for nested_key in ("url", "src", "imageUrl", "thumbnail"):
+                        nested_value = value.get(nested_key)
+                        if isinstance(nested_value, str) and nested_value.strip():
+                            return urljoin(base_url, html.unescape(nested_value.strip()))
+                if isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, str) and item.strip():
+                            return urljoin(base_url, html.unescape(item.strip()))
+                        if isinstance(item, dict):
+                            for nested_key in ("url", "src", "imageUrl", "thumbnail"):
+                                nested_value = item.get(nested_key)
+                                if isinstance(nested_value, str) and nested_value.strip():
+                                    return urljoin(base_url, html.unescape(nested_value.strip()))
+    return ""
+
+
+def _download_binary(url: str, timeout: int = 15) -> tuple[bytes, str]:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            content_type = response.headers.get_content_type() or "application/octet-stream"
+            return response.read(), content_type
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise RuntimeError(f"Could not fetch binary asset {url}: {exc}") from exc
+
+
+def _cache_tokopedia_image(slug: str, listing_url: str, html_text: str) -> str:
+    image_path, meta_path = _card_image_paths(slug)
+    if image_path.exists() and meta_path.exists():
+        return f"/card-images/{slug}"
+
+    image_url = _extract_tokopedia_image_url(html_text, listing_url)
+    if not image_url:
+        return ""
+    try:
+        data, content_type = _download_binary(image_url)
+    except Exception:
+        return ""
+
+    CARD_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    image_path.write_bytes(data)
+    meta_path.write_text(
+        json.dumps(
+            {
+                "image_url": image_url,
+                "listing_url": listing_url,
+                "content_type": content_type,
+                "fetched_at": utc_now().isoformat(),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return f"/card-images/{slug}"
+
+
+def _ensure_card_image(product: Product) -> str:
+    image_path, meta_path = _card_image_paths(product.slug)
+    if image_path.exists() and meta_path.exists():
+        return f"/card-images/{product.slug}"
+    if not product.tokopedia_url:
+        return ""
+    try:
+        page_text = fetch_text(product.tokopedia_url, timeout=15)
+    except Exception:
+        return ""
+    return _cache_tokopedia_image(product.slug, product.tokopedia_url, page_text)
 
 
 def _run_scheduler_bg(proc: subprocess.Popen, log_handle):
@@ -120,6 +352,7 @@ def api_dashboard():
     """Return dashboard KPI summary cards as HTML fragment."""
     from .config import load_config
     _, products = load_config(CONFIG_PATH)
+    products, _ = _dedupe_products_by_url(products)
     active = _active_tokopedia_products(products)
 
     products_with_data = get_all_products_with_trend()
@@ -180,6 +413,7 @@ def api_cards():
     """Return My Cards page fragment: action buttons + AG Grid rows."""
     from .config import load_config
     _, products = load_config(CONFIG_PATH)
+    products, _ = _dedupe_products_by_url(products)
     products = _active_tokopedia_products(products)
     products_with_data = get_all_products_with_trend()
     data_by_slug = {p['slug']: p for p in products_with_data}
@@ -192,6 +426,7 @@ def api_card_detail(slug: str):
     """Return card detail page as HTML fragment."""
     from .config import load_config
     _, products = load_config(CONFIG_PATH)
+    products, _ = _dedupe_products_by_url(products)
     product = next((p for p in products if p.slug == slug), None)
     if product is None:
         return "<p>Card not found</p>", 404, {"Content-Type": "text/html"}
@@ -202,12 +437,14 @@ def api_card_detail(slug: str):
     price_history = price_history_for_slug(slug)
     latest_snapshot = price_history[0] if price_history else {}
     market_avg = latest_snapshot.get("market_avg_price", info.get("global_average_idr"))
+    image_url = _ensure_card_image(product)
     chart_exists = (REPORTS_DIR / "charts" / f"{slug}.svg").exists()
     html = card_detail_fragment(
         product=product,
         info=info,
         observations=observations,
         chart_exists=chart_exists,
+        image_url=image_url,
         price_history=price_history,
         trend_7d=price_trend_for_slug(slug, 7),
         trend_30d=price_trend_for_slug(slug, 30),
@@ -220,15 +457,17 @@ def api_card_detail(slug: str):
 def api_sold_cards():
     """Return sold cards grid as HTML fragment."""
     from .config import load_config
-    _, products = load_config(CONFIG_PATH)
-    sold = [p for p in products if p.status == "sold"]
+    settings, products = load_config(CONFIG_PATH)
+    products, _ = _dedupe_products_by_url(products)
+    _sync_inventory(settings, products)
+    sold = sold_card_rows(_inventory_db_path())
 
-    return sold_cards_fragment(sold), 200, {"Content-Type": "text/html"}
+    return sold_cards_fragment(sold, income_summary(_inventory_db_path())), 200, {"Content-Type": "text/html"}
 
 
 @app.route("/api/products/sync", methods=["POST"])
 def api_sync_store_products():
-    """Fetch store page, find products not in config, add them. Backfill added_at for existing active products."""
+    """Reconcile config products with the active Tokopedia store listing."""
     from urllib.parse import quote, quote_plus
 
     from .card_parser import parse_card_identity
@@ -236,17 +475,55 @@ def api_sync_store_products():
     from .store_sync import get_active_store_product_urls_with_details
 
     settings, products = load_config(CONFIG_PATH)
-    existing_urls = {p.tokopedia_url for p in products if p.tokopedia_url}
     today = utc_now().isoformat()
+    products, deduped_count = _dedupe_products_by_url(products)
 
     store_products = get_active_store_product_urls_with_details(settings)
-    new_products = [
-        p for p in store_products
-        if p.get("tokopedia_url") and p["tokopedia_url"] not in existing_urls
-    ]
+    store_by_url = {
+        normalized: item
+        for item in store_products
+        if item.get("tokopedia_url")
+        for normalized in [_normalized_product_url(str(item.get("tokopedia_url", "")))]
+        if normalized
+    }
+    existing_by_url = {
+        normalized: product
+        for product in products
+        if product.tokopedia_url
+        for normalized in [_normalized_product_url(product.tokopedia_url)]
+        if normalized
+    }
 
     added = []
-    for item in new_products:
+    updated_count = 0
+    repaired_count = 0
+    sold_count = 0
+    updated_products = []
+
+    import dataclasses as dc
+
+    for product in products:
+        normalized = _normalized_product_url(product.tokopedia_url)
+        store_item = store_by_url.get(normalized)
+        updated_product = product
+        if product.status == "active" and not product.added_at:
+            updated_product = dc.replace(updated_product, added_at=today)
+        if product.status == "active" and normalized and store_item is not None:
+            store_price = int(store_item.get("own_price_idr") or 0)
+            if store_price > 0 and store_price != product.own_price_idr:
+                if product.own_price_idr == 20_000_000:
+                    repaired_count += 1
+                updated_product = dc.replace(updated_product, own_price_idr=store_price)
+                updated_count += 1
+        elif product.status == "active" and normalized and store_by_url and normalized not in store_by_url:
+            updated_product = dc.replace(updated_product, status="sold", sold_at=today)
+            sold_count += 1
+        updated_products.append(updated_product)
+    products = updated_products
+
+    for normalized, item in store_by_url.items():
+        if normalized in existing_by_url:
+            continue
         identity = parse_card_identity(item["title"])
         term = identity.tokopedia_query() or item["title"]
         snkrdunk_term = identity.snkrdunk_query() or term
@@ -283,14 +560,17 @@ def api_sync_store_products():
         products.append(product)
         added.append(product.title)
 
-    # Backfill added_at for existing active products that don't have it
-    for i, product in enumerate(products):
-        if product.status == "active" and not product.added_at:
-            import dataclasses as dc
-            products[i] = dc.replace(product, added_at=today)
-
     save_config(CONFIG_PATH, settings, products)
-    return jsonify({"ok": True, "added_count": len(added), "added": added}), 201
+    _sync_inventory(settings, products)
+    return jsonify({
+        "ok": True,
+        "added_count": len(added),
+        "updated_count": updated_count,
+        "repaired_count": repaired_count,
+        "sold_count": sold_count,
+        "deduped_count": deduped_count,
+        "added": added,
+    }), 201
 
 
 @app.route("/api/opportunities")
@@ -315,7 +595,6 @@ def api_repricing():
 def add_card():
     """Add a new card from Tokopedia URL and search keyword."""
     from .config import load_config, save_config
-    from .card_parser import parse_card_identity
 
     data = request.get_json()
     tokopedia_url = data.get("tokopedia_url", "").strip()
@@ -337,13 +616,22 @@ def add_card():
         if p.tokopedia_url == tokopedia_url:
             return jsonify({"ok": False, "error": "Card already exists", "slug": p.slug}), 409
 
-    # Build a placeholder title from search keyword for now
-    title = search_keyword if search_keyword else tokopedia_url.split("/")[-1].split("?")[0].replace("-", " ")
-    identity = parse_card_identity(title)
+    title = ""
+    page_text = ""
+    try:
+        page_text = fetch_text(tokopedia_url, timeout=15)
+        title = _extract_listing_title(page_text)
+        price_idr = _extract_tokopedia_price(page_text)
+    except Exception:
+        title = ""
+        price_idr = None
+    if not title:
+        title = search_keyword if search_keyword else tokopedia_url.split("/")[-1].split("?")[0].replace("-", " ")
+    title = clean_text(title)
 
     product = Product(
         title=title,
-        own_price_idr=0,
+        own_price_idr=price_idr or 0,
         tokopedia_url=tokopedia_url,
         search_terms=[search_keyword] if search_keyword else [],
         sources=[],
@@ -354,6 +642,17 @@ def add_card():
 
     products.append(product)
     save_config(CONFIG_PATH, settings, products)
+    _sync_inventory(settings, products)
+
+    if page_text:
+        _cache_tokopedia_image(product.slug, tokopedia_url, page_text)
+    if price_idr is not None:
+        record_price_snapshot(
+            card_id=product.slug,
+            tokopedia_price=price_idr,
+            created_at=utc_now().isoformat(),
+            source_summary="initial add snapshot",
+        )
 
     return jsonify({"ok": True, "slug": product.slug}), 201
 
@@ -403,8 +702,99 @@ def revert_sold_card(slug: str):
     reverted = dc.replace(product, status="active", sold_at="")
     products = [reverted if p.slug == slug else p for p in products]
     save_config(CONFIG_PATH, settings, products)
+    create_restock_listing(reverted, _inventory_db_path())
 
     return jsonify({"ok": True, "title": product.title})
+
+
+@app.route("/api/cards/<slug>/mark-sold", methods=["POST"])
+def mark_sold_card(slug: str):
+    """Manually move an active card to sold and record sale income details."""
+    from .config import load_config, save_config
+
+    data = request.get_json() or {}
+    sold_at = str(data.get("sold_at", "")).strip()
+    sold_price = parse_idr(data.get("sold_price_idr", data.get("sold_price")))
+    bought_at_price = parse_idr(data.get("bought_at_price_idr", data.get("bought_at_price")))
+    net_income = parse_idr(data.get("net_income_idr"))
+
+    if not re.match(r"^\d{4}-\d{2}-\d{2}", sold_at):
+        return jsonify({"ok": False, "error": "Sold date is required"}), 400
+    if sold_price is None:
+        return jsonify({"ok": False, "error": "Sold price is required"}), 400
+    if bought_at_price is None:
+        return jsonify({"ok": False, "error": "Bought price is required"}), 400
+    if net_income is None:
+        return jsonify({"ok": False, "error": "Net income is required"}), 400
+
+    settings, products = load_config(CONFIG_PATH)
+    product = next((p for p in products if p.slug == slug), None)
+    if product is None:
+        return jsonify({"ok": False, "error": "Card not found"}), 404
+    if product.status == "sold":
+        return jsonify({"ok": False, "error": "Card is already sold"}), 400
+
+    import dataclasses as dc
+    sold_at_value = sold_at if "T" in sold_at else f"{sold_at}T00:00:00+00:00"
+    sold_product = dc.replace(product, status="sold", sold_at=sold_at_value)
+    products = [sold_product if p.slug == slug else p for p in products]
+    save_config(CONFIG_PATH, settings, products)
+    mark_product_sold(
+        sold_product,
+        SaleInput(
+            sold_at=sold_at_value,
+            sold_price_idr=sold_price,
+            bought_at_price_idr=bought_at_price,
+            net_income_idr=net_income,
+        ),
+        _inventory_db_path(),
+    )
+
+    return jsonify({"ok": True, "title": product.title, "slug": slug})
+
+
+@app.route("/api/cards/<slug>/sale-details", methods=["POST"])
+def update_sold_sale_details(slug: str):
+    """Update income details for an existing sold card."""
+    from .config import load_config, save_config
+
+    data = request.get_json() or {}
+    sold_at = str(data.get("sold_at", "")).strip()
+    sold_price = parse_idr(data.get("sold_price_idr", data.get("sold_price")))
+    bought_at_price = parse_idr(data.get("bought_at_price_idr", data.get("bought_at_price")))
+    net_income = parse_idr(data.get("net_income_idr"))
+
+    if not re.match(r"^\d{4}-\d{2}-\d{2}", sold_at):
+        return jsonify({"ok": False, "error": "Sold date is required"}), 400
+    if sold_price is None:
+        return jsonify({"ok": False, "error": "Sold price is required"}), 400
+    if bought_at_price is None:
+        return jsonify({"ok": False, "error": "Bought price is required"}), 400
+    if net_income is None:
+        return jsonify({"ok": False, "error": "Net income is required"}), 400
+
+    settings, products = load_config(CONFIG_PATH)
+    product = next((p for p in products if p.slug == slug), None)
+    if product is None:
+        return jsonify({"ok": False, "error": "Card not found"}), 404
+
+    import dataclasses as dc
+    sold_at_value = sold_at if "T" in sold_at else f"{sold_at}T00:00:00+00:00"
+    sold_product = dc.replace(product, status="sold", sold_at=sold_at_value)
+    products = [sold_product if p.slug == slug else p for p in products]
+    save_config(CONFIG_PATH, settings, products)
+    update_sale_details(
+        sold_product,
+        SaleInput(
+            sold_at=sold_at_value,
+            sold_price_idr=sold_price,
+            bought_at_price_idr=bought_at_price,
+            net_income_idr=net_income,
+        ),
+        _inventory_db_path(),
+    )
+
+    return jsonify({"ok": True, "title": product.title, "slug": slug})
 
 
 @app.route("/api/cards/<slug>/update-price", methods=["PUT"])
@@ -412,8 +802,6 @@ def update_card_price(slug: str):
     """Fetch the current Tokopedia listing price for this card and update own_price_idr."""
     from .config import load_config, save_config
     from .http import fetch_text
-    from .infrastructure.parsing import parse_price_to_idr
-    import re
 
     settings, products = load_config(CONFIG_PATH)
     product = next((p for p in products if p.slug == slug), None)
@@ -429,24 +817,7 @@ def update_card_price(slug: str):
     except Exception as exc:
         return jsonify({"ok": False, "error": f"Failed to fetch Tokopedia page: {exc}"}), 502
 
-    # Try to extract price from SSR structure first
-    price_idr = None
-    m = re.search(r'data-testid="price["\s>][^<>]*?Rp\s?([\d.]+)', html_text, re.I)
-    if not m:
-        m = re.search(r'"text_idr"\s*:\s*"Rp([\d.]+)"', html_text)
-    if not m:
-        m = re.search(r'Rp\s?([\d]{1,3}(?:,\d{3})*(?:\.\d+)?)', html_text)
-    if m:
-        price_idr = parse_price_to_idr(m.group(0))
-
-    # Fallback: scan all Rp price candidates if no structured match found
-    if not price_idr or price_idr < 10_000:
-        price_candidates = re.findall(r'Rp\s?[\d.]+', html_text)
-        for candidate in price_candidates:
-            candidate_price = parse_price_to_idr(candidate)
-            if candidate_price and candidate_price >= 10_000:
-                price_idr = candidate_price
-                break
+    price_idr = _extract_tokopedia_price(html_text)
 
     if not price_idr or price_idr < 10_000:
         return jsonify({"ok": False, "error": "Could not extract price from Tokopedia listing"}), 422
@@ -456,6 +827,13 @@ def update_card_price(slug: str):
     updated = dc.replace(product, own_price_idr=price_idr)
     products = [updated if p.slug == slug else p for p in products]
     save_config(CONFIG_PATH, settings, products)
+    _cache_tokopedia_image(slug, tokopedia_url, html_text)
+    record_price_snapshot(
+        card_id=slug,
+        tokopedia_price=price_idr,
+        created_at=utc_now().isoformat(),
+        source_summary="manual sync",
+    )
 
     from .reports import idr
     return jsonify({"ok": True, "own_price_idr": price_idr, "price_display": idr(price_idr)})
@@ -610,6 +988,21 @@ def chart_svg(slug: str):
     if not chart_path.exists():
         return "Chart not found", 404
     return Response(chart_path.read_text(), mimetype="image/svg+xml")
+
+
+@app.route("/card-images/<slug>")
+def card_image(slug: str):
+    image_path, meta_path = _card_image_paths(slug)
+    if not image_path.exists():
+        return "Image not found", 404
+    content_type = "image/jpeg"
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            content_type = str(meta.get("content_type") or content_type)
+        except Exception:
+            pass
+    return Response(image_path.read_bytes(), mimetype=content_type)
 
 
 if __name__ == "__main__":

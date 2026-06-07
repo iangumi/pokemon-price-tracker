@@ -169,6 +169,13 @@ def format_money_or_missing(value: int | None) -> str:
     return "Insufficient market data" if value is None else idr(value)
 
 
+def first_positive_int(*values: int | None) -> int | None:
+    for value in values:
+        if isinstance(value, int) and value > 0:
+            return value
+    return None
+
+
 def action_badge(action: str) -> str:
     tones = {
         "Lower price": "danger",
@@ -367,7 +374,7 @@ def cards_fragment(products: list[Any], data_by_slug: dict[str, dict[str, Any]])
     return f'<section class="cards-page">{content}</section>'
 
 
-def identity_panel(product: Any) -> str:
+def identity_panel(product: Any, image_url: str = "") -> str:
     identity = product.card_identity
     items = [
         ("Name", identity.name or product.title),
@@ -380,7 +387,18 @@ def identity_panel(product: Any) -> str:
         ("Sold", product.sold_at[:10] if product.sold_at else "-"),
     ]
     body = "".join(f"<dt>{h(label)}</dt><dd>{h(value)}</dd>" for label, value in items)
-    return panel("Card Identity", f'<dl class="identity-list">{body}</dl>')
+    image_block = ""
+    if image_url:
+        image_block = f'''
+        <div class="identity-media">
+          <img class="card-image" src="{h(image_url)}" alt="Product image for {h(product.title)}">
+        </div>'''
+    else:
+        image_block = '''
+        <div class="identity-media identity-media--empty">
+          <span>No product image cached yet</span>
+        </div>'''
+    return panel("Card Identity", f'<div class="identity-layout">{image_block}<dl class="identity-list">{body}</dl></div>')
 
 
 def card_detail_fragment(
@@ -389,6 +407,7 @@ def card_detail_fragment(
     info: dict[str, Any],
     observations: list[dict[str, Any]],
     chart_exists: bool,
+    image_url: str = "",
     price_history: list[dict[str, Any]] | None = None,
     trend_7d: float | None = None,
     trend_30d: float | None = None,
@@ -397,7 +416,7 @@ def card_detail_fragment(
     price_history = price_history or []
     suggested = suggested or {"quick_sale": None, "normal": None, "max_profit": None}
     latest_snapshot = price_history[0] if price_history else {}
-    latest_tokopedia_price = latest_snapshot.get("tokopedia_price", product.own_price_idr)
+    latest_tokopedia_price = first_positive_int(latest_snapshot.get("tokopedia_price"), product.own_price_idr)
     latest_market_avg = latest_snapshot.get("market_avg_price", info.get("global_average_idr"))
     is_sold = product.status == "sold"
     alert = info.get("alert_level", "none")
@@ -409,17 +428,21 @@ def card_detail_fragment(
             [
                 button("Refresh Competitors", onclick=f"refreshCard('{h(product.slug)}')", variant="primary", element_id="refresh-btn"),
                 button("Sync Store Price", onclick=f"updatePrice('{h(product.slug)}')", variant="secondary", element_id="update-price-btn"),
+                button("Mark Sold", onclick=f"openMarkSoldModal('{h(product.slug)}')", variant="secondary"),
             ]
         )
+    else:
+        actions.append(button("Edit Sale", onclick=f"openEditSaleModal('{h(product.slug)}')", variant="secondary"))
 
     search_term = product.search_terms[0] if product.search_terms else ""
     search_editor = ""
     if not is_sold:
+        save_onclick = f'updateSearchTerm("{h(product.slug)}")'
         search_editor = field_row(
             "Search keyword",
             (
                 f'<input id="search-term-input" class="input" type="text" value="{h(search_term)}">'
-                f'{button("Save", onclick=f"updateSearchTerm(\\'{h(product.slug)}\\')", variant="secondary")}'
+                f'{button("Save", onclick=save_onclick, variant="secondary")}'
             ),
             "Used for competitor search URLs.",
         )
@@ -428,7 +451,7 @@ def card_detail_fragment(
         "Price Review Snapshot",
         metric_grid(
             [
-                metric_card("Latest Tokopedia price", idr(latest_tokopedia_price), icon="store"),
+                metric_card("Latest Tokopedia price", format_money_or_missing(latest_tokopedia_price), icon="store"),
                 metric_card("Latest market avg", idr(latest_market_avg), icon="market"),
                 metric_card("Delta", pct(info.get("price_delta_percent")), icon="alert"),
                 metric_card("7 day market trend", pct(trend_7d), icon="run"),
@@ -451,10 +474,10 @@ def card_detail_fragment(
         toolbar(*actions)
         + search_editor
         + metrics
+        + identity_panel(product, image_url=image_url)
         + chart
         + suggested_price_panel(suggested)
         + price_history_panel(price_history)
-        + identity_panel(product)
         + source_evidence_panel(observations)
     )
 
@@ -587,28 +610,84 @@ def source_evidence_panel(observations: list[dict[str, Any]]) -> str:
     )
 
 
-def sold_cards_fragment(products: list[Any]) -> str:
+def sold_cards_fragment(products: list[Any], summary: dict[str, Any] | None = None) -> str:
+    summary = summary or {"sold_count": 0, "net_income_idr": 0, "weekly": [], "monthly": []}
     if not products:
-        return empty_state("No sold cards", "Cards marked sold or delisted will appear here.")
+        return panel(
+            "Sales Summary",
+            metric_grid(
+                [
+                    metric_card("Sold cards", "0", "Completed sale records", icon="cards"),
+                    metric_card("Net income", idr(0), "Manual income captured from sales", icon="market"),
+                ]
+            ),
+            subtitle="Income analysis will appear after cards are marked sold.",
+        ) + empty_state("No sold cards", "Cards marked sold or delisted will appear here.")
+    monthly = summary.get("monthly") or []
+    period_note = "No monthly income yet"
+    if monthly:
+        period_note = ", ".join(
+            f"{h(row.get('period', '-'))}: {h(idr(row.get('net_income_idr')))}"
+            for row in monthly[:3]
+        )
+    summary_panel = panel(
+        "Sales Summary",
+        metric_grid(
+            [
+                metric_card("Sold cards", f"{int(summary.get('sold_count') or 0):,}", "Sales with income records", icon="cards"),
+                metric_card("Net income", idr(summary.get("net_income_idr") or 0), "Total manually recorded income", icon="market"),
+                metric_card("Monthly view", str(len(monthly)), period_note, icon="run"),
+            ]
+        ),
+        subtitle="Income metrics use sold date and manually entered net income.",
+    )
     cards = []
     for product in products:
-        sold_date = product.sold_at[:10] if product.sold_at else "-"
+        if isinstance(product, dict):
+            title = product.get("title", "-")
+            slug = product.get("slug", "")
+            language = product.get("language", "-")
+            price = product.get("own_price_idr")
+            sold_at = product.get("sold_at", "")
+            bought_at_price = product.get("bought_at_price_idr")
+            sold_price = product.get("sold_price_idr")
+            net_income = product.get("net_income_idr")
+        else:
+            title = product.title
+            slug = product.slug
+            language = product.language
+            price = product.own_price_idr
+            sold_at = product.sold_at
+            bought_at_price = None
+            sold_price = None
+            net_income = None
+        sold_date = sold_at[:10] if sold_at else "-"
+        sold_value = sold_at[:10] if sold_at else ""
+        bought_price_value = "" if bought_at_price is None else str(bought_at_price)
+        sold_price_value = "" if sold_price is None else str(sold_price)
+        net_income_value = "" if net_income is None else str(net_income)
         cards.append(
             f"""
             <article class="product-card product-card--sold">
               <div class="product-card__header">
-                <a class="product-card__title" href="/cards/{h(product.slug)}">{h(product.title)}</a>
+                <a class="product-card__title" href="/cards/{h(slug)}">{h(title)}</a>
                 {badge("Sold", "danger")}
               </div>
-              <div class="product-card__meta">{h(product.language)}</div>
+              <div class="product-card__meta">{h(language)}</div>
               <div class="mini-metrics">
-                {metric_card("Your price", idr(product.own_price_idr))}
+                {metric_card("Listing price", idr(price))}
+                {metric_card("Sold price", idr(sold_price))}
+                {metric_card("Bought price", idr(bought_at_price))}
                 {metric_card("Sold at", h(sold_date))}
+                {metric_card("Net income", idr(net_income))}
               </div>
-              <div class="card-actions">{button("Mark Active", onclick=f"revertSold('{h(product.slug)}')", variant="secondary")}</div>
+              <div class="card-actions">
+                {button("Edit Sale", onclick=f"openEditSaleModal('{h(slug)}', '{h(sold_value)}', '{h(sold_price_value)}', '{h(bought_price_value)}', '{h(net_income_value)}')", variant="primary")}
+                {button("Mark Active", onclick=f"revertSold('{h(slug)}')", variant="secondary")}
+              </div>
             </article>"""
         )
-    return f'<div class="cards-grid">{"".join(cards)}</div>'
+    return summary_panel + f'<div class="cards-grid">{"".join(cards)}</div>'
 
 
 def opportunities_fragment(products: list[dict[str, Any]]) -> str:
