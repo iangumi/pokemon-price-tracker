@@ -1061,10 +1061,10 @@
         <span>◈</span> Dashboard
       </a>
       <a href="/cards" :class="{ 'active': currentPage === 'cards' }" @click.prevent="navigateTo('/cards')">
-        <span>◫</span> My Cards
+        <span>◫</span> Store Listings
       </a>
-      <a href="latest.md" :class="{ 'active': currentPage === 'reports' }" @click="setPage('reports')">
-        <span>◻</span> Reports
+      <a href="/inventory" :class="{ 'active': currentPage === 'inventory' }" @click.prevent="navigateTo('/inventory')">
+        <span>▣</span> Inventory
       </a>
       <a href="/opportunities" :class="{ 'active': currentPage === 'ops' }" @click.prevent="navigateTo('/opportunities')">
         <span>◇</span> Opportunities
@@ -1074,6 +1074,9 @@
       </a>
       <a href="/soldcards" :class="{ 'active': currentPage === 'sold' }" @click.prevent="navigateTo('/soldcards')">
         <span>◻</span> Sold Cards
+      </a>
+      <a href="/reports" :class="{ 'active': currentPage === 'reports' }" @click.prevent="navigateTo('/reports')">
+        <span>◻</span> Reports
       </a>
     </nav>
     <div class="spacer"></div>
@@ -1150,6 +1153,12 @@
         if (!slug) return escapeHtml(title);
         return '<a class="table-title" href="/cards/' + encodeURIComponent(slug) + '">' + escapeHtml(title) + '</a>';
       },
+      opportunityLink: function(params) {
+        var title = params.value || '-';
+        var slug = params.data && params.data.slug;
+        if (!slug) return escapeHtml(title);
+        return '<a class="table-title" href="/opportunities/' + encodeURIComponent(slug) + '">' + escapeHtml(title) + '</a>';
+      },
       externalLink: function(params) {
         var title = params.value || '-';
         var url = params.data && params.data.url;
@@ -1168,6 +1177,15 @@
       },
       sourceBadge: function(params) {
         return badgeHtml(String(params.value || '-').replace(/_/g, ' '), 'neutral');
+      },
+      statusBadge: function(params) {
+        var status = String(params.value || '-');
+        var normalized = status.toLowerCase();
+        var tone = normalized === 'converted' || normalized === 'active' || normalized === 'listed' ? 'success'
+          : normalized === 'sold' ? 'danger'
+          : normalized === 'owned' || normalized === 'open' ? 'warning'
+          : 'neutral';
+        return badgeHtml(status, tone);
       },
       decisionBadge: function(params) {
         var used = params.data && params.data.used;
@@ -1339,14 +1357,17 @@
             this.pageTitle = 'Dashboard';
             this.pageMeta = 'Portfolio overview across your active Tokopedia listings.';
           } else if (page === 'cards') {
-            this.pageTitle = 'My Cards';
-            this.pageMeta = 'Click any card to see full details and price history.';
+            this.pageTitle = 'Store Listings';
+            this.pageMeta = 'Tokopedia listing prices, market averages, alerts, and store sync.';
           } else if (page === 'repricing') {
             this.pageTitle = 'Repricing Queue';
             this.pageMeta = 'Cards that need Tokopedia price action.';
           } else if (page === 'ops') {
             this.pageTitle = 'Buying Opportunities';
-            this.pageMeta = 'First-pass candidates from high global evidence plus low Tokopedia local supply.';
+            this.pageMeta = 'Buy-list cards before they become owned inventory or active listings.';
+          } else if (page === 'inventory') {
+            this.pageTitle = 'Owned Inventory';
+            this.pageMeta = 'Owned cards from buy-list conversions and listing lifecycles.';
           } else if (page === 'reports') {
             this.pageTitle = 'Reports';
             this.pageMeta = 'Markdown report from last run.';
@@ -1367,6 +1388,9 @@
           } else if (path === '/opportunities') {
             this.setPage('ops');
             url = '/api/opportunities';
+          } else if (path === '/inventory') {
+            this.setPage('inventory');
+            url = '/api/inventory';
           } else if (path === '/repricing') {
             this.setPage('repricing');
             url = '/api/repricing';
@@ -1378,6 +1402,11 @@
             this.pageTitle = 'Card Detail';
             this.pageMeta = 'Loading...';
             url = '/api/cards/' + path.replace('/cards/', '');
+          } else if (path.startsWith('/opportunities/')) {
+            this.currentPage = 'opportunity-detail';
+            this.pageTitle = 'Opportunity Detail';
+            this.pageMeta = 'Buy-list source, pricing, and conversion workflow.';
+            url = '/api/opportunities/' + path.replace('/opportunities/', '');
           } else {
             this.setPage('dash');
           }
@@ -1413,7 +1442,7 @@
             self.navigateTo((event.state && event.state.path) || window.location.pathname, false);
           });
           document.addEventListener('click', function(event) {
-            var link = event.target.closest('a[href^="/cards/"]');
+            var link = event.target.closest('a[href^="/cards/"], a[href^="/opportunities/"]');
             if (!link || link.target === '_blank') return;
             event.preventDefault();
             self.navigateTo(link.getAttribute('href'));
@@ -1527,6 +1556,85 @@
 
     function closeAddCardModal() {
       document.getElementById('add-card-modal').classList.remove('open');
+    }
+
+    function openOpportunityModal() {
+      document.getElementById('opp-card-name').value = '';
+      document.getElementById('opp-card-rarity').value = '';
+      document.getElementById('opp-card-language').value = '';
+      document.getElementById('opp-source').value = '';
+      document.getElementById('opp-link').value = '';
+      document.getElementById('opp-price').value = '';
+      document.getElementById('opportunity-modal').classList.add('open');
+    }
+
+    function closeOpportunityModal() {
+      document.getElementById('opportunity-modal').classList.remove('open');
+    }
+
+    async function submitOpportunity() {
+      var payload = {
+        card_name: document.getElementById('opp-card-name').value.trim(),
+        card_rarity: document.getElementById('opp-card-rarity').value.trim(),
+        card_language: document.getElementById('opp-card-language').value.trim(),
+        source: document.getElementById('opp-source').value.trim(),
+        link: document.getElementById('opp-link').value.trim(),
+        price_idr: document.getElementById('opp-price').value.trim()
+      };
+      if (!payload.card_name || !payload.card_rarity || !payload.card_language || !payload.source || !payload.link || !payload.price_idr) {
+        showToast('All opportunity fields are required', 'error');
+        return;
+      }
+      var res = await fetch('/api/opportunities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      var data = await res.json();
+      if (!data.ok) {
+        showToast(data.error || 'Failed to add opportunity', 'error');
+        return;
+      }
+      closeOpportunityModal();
+      window._app.navigateTo('/opportunities/' + data.slug);
+    }
+
+    function openConvertOpportunityModal(slug, price) {
+      document.getElementById('convert-opportunity-slug').value = slug || '';
+      document.getElementById('convert-bought-price').value = price || '';
+      document.getElementById('convert-tokopedia-url').value = '';
+      document.getElementById('convert-listing-price').value = '';
+      document.getElementById('convert-opportunity-modal').classList.add('open');
+    }
+
+    function closeConvertOpportunityModal() {
+      document.getElementById('convert-opportunity-modal').classList.remove('open');
+    }
+
+    async function submitConvertOpportunity() {
+      var slug = document.getElementById('convert-opportunity-slug').value;
+      var payload = {
+        bought_at_price_idr: document.getElementById('convert-bought-price').value.trim(),
+        tokopedia_url: document.getElementById('convert-tokopedia-url').value.trim(),
+        listing_price_idr: document.getElementById('convert-listing-price').value.trim()
+      };
+      if (!slug || !payload.bought_at_price_idr) {
+        showToast('Bought price is required', 'error');
+        return;
+      }
+      var res = await fetch('/api/opportunities/' + encodeURIComponent(slug) + '/convert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      var data = await res.json();
+      if (!data.ok) {
+        showToast(data.error || 'Failed to convert opportunity', 'error');
+        return;
+      }
+      closeConvertOpportunityModal();
+      showToast(data.created_listing ? 'Converted and listed' : 'Converted to inventory', 'ok');
+      window._app.navigateTo('/inventory');
     }
 
     function openMarkSoldModal(slug) {
@@ -1693,6 +1801,43 @@
       <div class="modal-actions">
         <button class="btn" onclick="closeAddCardModal()">Cancel</button>
         <button class="btn" onclick="submitAddCard()">Add Card</button>
+      </div>
+    </div>
+  </div>
+  <div id="opportunity-modal" class="modal-overlay" x-data="{}">
+    <div class="modal">
+      <h2>Add Buy List Card</h2>
+      <label>Card Name</label>
+      <input id="opp-card-name" type="text" placeholder="Lisia's Appeal">
+      <label>Card Rarity</label>
+      <input id="opp-card-rarity" type="text" placeholder="SAR">
+      <label>Card Language</label>
+      <input id="opp-card-language" type="text" placeholder="Japanese">
+      <label>Source</label>
+      <input id="opp-source" type="text" placeholder="Tokopedia seller, eBay, SNKRDUNK">
+      <label>Link</label>
+      <input id="opp-link" type="url" placeholder="https://...">
+      <label>Price</label>
+      <input id="opp-price" type="text" inputmode="numeric" placeholder="1500000">
+      <div class="modal-actions">
+        <button class="btn" onclick="closeOpportunityModal()">Cancel</button>
+        <button class="btn" onclick="submitOpportunity()">Add Opportunity</button>
+      </div>
+    </div>
+  </div>
+  <div id="convert-opportunity-modal" class="modal-overlay" x-data="{}">
+    <div class="modal">
+      <h2>Convert Opportunity</h2>
+      <input id="convert-opportunity-slug" type="hidden">
+      <label>Bought Price</label>
+      <input id="convert-bought-price" type="text" inputmode="numeric" placeholder="1500000">
+      <label>Tokopedia Listing URL</label>
+      <input id="convert-tokopedia-url" type="url" placeholder="Optional, only if already listed">
+      <label>Listing Price</label>
+      <input id="convert-listing-price" type="text" inputmode="numeric" placeholder="Optional, required with Tokopedia URL">
+      <div class="modal-actions">
+        <button class="btn" onclick="closeConvertOpportunityModal()">Cancel</button>
+        <button class="btn" onclick="submitConvertOpportunity()">Convert</button>
       </div>
     </div>
   </div>

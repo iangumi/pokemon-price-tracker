@@ -26,9 +26,16 @@ from .history import (
 )
 from .http import fetch_text
 from .inventory import (
+    ConvertOpportunityInput,
+    OpportunityInput,
     SaleInput,
     create_restock_listing,
+    convert_opportunity,
+    create_opportunity,
+    get_opportunity,
     income_summary,
+    inventory_rows,
+    list_opportunities,
     mark_product_sold,
     parse_idr,
     sold_card_rows,
@@ -42,6 +49,8 @@ from .ui_components import (
     cards_fragment,
     card_detail_fragment,
     dashboard_fragment,
+    inventory_fragment,
+    opportunity_detail_fragment,
     opportunities_fragment,
     repricing_queue_fragment,
     reports_fragment,
@@ -330,6 +339,16 @@ def opportunities_page():
     return app.send_static_file("index.html")
 
 
+@app.route("/opportunities/<slug>")
+def opportunity_detail_page(slug: str):
+    return app.send_static_file("index.html")
+
+
+@app.route("/inventory")
+def inventory_page():
+    return app.send_static_file("index.html")
+
+
 @app.route("/repricing")
 def repricing_page():
     return app.send_static_file("index.html")
@@ -575,9 +594,144 @@ def api_sync_store_products():
 
 @app.route("/api/opportunities")
 def api_opportunities():
-    """Return opportunities table as HTML fragment."""
-    products_with_data = get_all_products_with_trend()
-    return opportunities_fragment(products_with_data), 200, {"Content-Type": "text/html"}
+    """Return persistent buy-list opportunities as HTML fragment."""
+    return opportunities_fragment(list_opportunities(_inventory_db_path())), 200, {"Content-Type": "text/html"}
+
+
+@app.route("/api/opportunities", methods=["POST"])
+def api_create_opportunity():
+    data = request.get_json() or {}
+    card_name = clean_text(str(data.get("card_name", "")))
+    card_rarity = clean_text(str(data.get("card_rarity", ""))).upper()
+    card_language = clean_text(str(data.get("card_language", "")))
+    source = clean_text(str(data.get("source", "")))
+    link = str(data.get("link", "")).strip()
+    price = parse_idr(data.get("price_idr", data.get("price")))
+
+    if not card_name:
+        return jsonify({"ok": False, "error": "Card name is required"}), 400
+    if not card_rarity:
+        return jsonify({"ok": False, "error": "Card rarity is required"}), 400
+    if not card_language:
+        return jsonify({"ok": False, "error": "Card language is required"}), 400
+    if not source:
+        return jsonify({"ok": False, "error": "Source is required"}), 400
+    if not link:
+        return jsonify({"ok": False, "error": "Link is required"}), 400
+    if price is None:
+        return jsonify({"ok": False, "error": "Price is required"}), 400
+
+    opportunity = create_opportunity(
+        OpportunityInput(
+            card_name=card_name,
+            card_rarity=card_rarity,
+            card_language=card_language,
+            source=source,
+            link=link,
+            price_idr=price,
+        ),
+        _inventory_db_path(),
+    )
+    return jsonify({"ok": True, "slug": opportunity["slug"], "opportunity": opportunity}), 201
+
+
+@app.route("/api/opportunities/<slug>")
+def api_opportunity_detail(slug: str):
+    opportunity = get_opportunity(slug, _inventory_db_path())
+    if opportunity is None:
+        return "<p>Opportunity not found</p>", 404, {"Content-Type": "text/html"}
+    return opportunity_detail_fragment(opportunity), 200, {"Content-Type": "text/html"}
+
+
+@app.route("/api/opportunities/<slug>/convert", methods=["POST"])
+def api_convert_opportunity(slug: str):
+    from urllib.parse import quote_plus
+    from .card_parser import parse_card_identity
+    from .config import load_config, save_config
+
+    data = request.get_json() or {}
+    bought_price = parse_idr(data.get("bought_at_price_idr", data.get("bought_at_price")))
+    tokopedia_url = str(data.get("tokopedia_url", "")).strip()
+    listing_price = parse_idr(data.get("listing_price_idr", data.get("listing_price")))
+    if bought_price is None:
+        return jsonify({"ok": False, "error": "Bought price is required"}), 400
+    if tokopedia_url and listing_price is None:
+        return jsonify({"ok": False, "error": "Listing price is required when Tokopedia URL is provided"}), 400
+    if listing_price is not None and not tokopedia_url:
+        return jsonify({"ok": False, "error": "Tokopedia URL is required when listing price is provided"}), 400
+
+    opportunity = get_opportunity(slug, _inventory_db_path())
+    if opportunity is None:
+        return jsonify({"ok": False, "error": "Opportunity not found"}), 404
+    if opportunity.get("status") == "converted":
+        return jsonify({"ok": False, "error": "Opportunity is already converted"}), 400
+
+    product = None
+    created_listing = False
+    if tokopedia_url and listing_price is not None:
+        settings, products = load_config(CONFIG_PATH)
+        normalized = _normalized_product_url(tokopedia_url)
+        if any(_normalized_product_url(p.tokopedia_url) == normalized for p in products if p.tokopedia_url):
+            return jsonify({"ok": False, "error": "Tokopedia listing already exists"}), 409
+        title = opportunity["title"]
+        identity = parse_card_identity(title)
+        term = identity.tokopedia_query() or title
+        snkrdunk_term = identity.snkrdunk_query() or term
+        product = Product(
+            title=title,
+            own_price_idr=listing_price,
+            tokopedia_url=tokopedia_url,
+            search_terms=[term],
+            sources=[
+                Source(
+                    name="tokopedia competitors",
+                    kind="tokopedia_find",
+                    url=f"https://www.tokopedia.com/find/{term.replace(' ', '-').lower()}?ob=4",
+                ),
+                Source(
+                    name="ebay sold",
+                    kind="ebay_sold",
+                    url=f"https://www.ebay.com/sch/i.html?_nkw={quote_plus(term)}&LH_Sold=1&LH_Complete=1",
+                ),
+                Source(
+                    name="snkrdunk search",
+                    kind="snkrdunk_search",
+                    url=(
+                        "https://snkrdunk.com/v3/search?func=all&refId=search"
+                        f"&keyword={quote_plus(snkrdunk_term)}"
+                        "&sortKey=default&cardVersion=2&categoryIds=6&perPage=30&page=1"
+                    ),
+                ),
+            ],
+            status="active",
+            added_at=utc_now().isoformat(),
+        )
+        products.append(product)
+        save_config(CONFIG_PATH, settings, products)
+        created_listing = True
+
+    converted = convert_opportunity(
+        slug,
+        ConvertOpportunityInput(
+            bought_at_price_idr=bought_price,
+            tokopedia_url=tokopedia_url,
+            listing_price_idr=listing_price,
+        ),
+        product=product,
+        path=_inventory_db_path(),
+    )
+    if converted is None:
+        return jsonify({"ok": False, "error": "Opportunity not found"}), 404
+
+    return jsonify({"ok": True, "slug": slug, "created_listing": created_listing, "opportunity": converted})
+
+
+@app.route("/api/inventory")
+def api_inventory():
+    from .config import load_config
+    settings, products = load_config(CONFIG_PATH)
+    _sync_inventory(settings, products)
+    return inventory_fragment(inventory_rows(_inventory_db_path())), 200, {"Content-Type": "text/html"}
 
 
 @app.route("/api/repricing")

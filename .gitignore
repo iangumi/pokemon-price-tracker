@@ -32,5 +32,8 @@ skills-lock.json
 # Playwright test artifacts
 .playwright-cli/
 
+# Card image cache
+data/card-images/
+
 # macOS
 .DS_Store

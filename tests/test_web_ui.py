@@ -743,10 +743,128 @@ class WebUiTests(unittest.TestCase):
             "Mark Active",
         )
 
-    def test_opportunities_uses_review_queue_panel(self):
+    def test_opportunities_buy_list_can_create_and_render_detail(self):
+        response = self.client.post(
+            "/api/opportunities",
+            json={
+                "card_name": "Lisia's Appeal",
+                "card_rarity": "SAR",
+                "card_language": "Japanese",
+                "source": "Tokopedia seller",
+                "link": "https://example.test/lisia",
+                "price_idr": "1500000",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        slug = response.get_json()["slug"]
         self.assert_fragment_has(
             "/api/opportunities",
-            "Opportunity Review Queue",
+            "Buy List Opportunities",
+            "Add Buy List Card",
+            "opportunityLink",
+            "Lisia",
+            "1500000",
+        )
+        self.assert_fragment_has(
+            f"/api/opportunities/{slug}",
+            "Opportunity Snapshot",
+            "Card Opportunity Detail",
+            "Convert to Inventory",
+            "Open Source",
+        )
+
+    def test_convert_opportunity_to_inventory_only(self):
+        created = self.client.post(
+            "/api/opportunities",
+            json={
+                "card_name": "Misty's Favor",
+                "card_rarity": "SR",
+                "card_language": "Japanese",
+                "source": "eBay",
+                "link": "https://example.test/misty",
+                "price_idr": "2000000",
+            },
+        ).get_json()
+
+        response = self.client.post(
+            f"/api/opportunities/{created['slug']}/convert",
+            json={"bought_at_price_idr": "1900000"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.get_json()["created_listing"])
+        detail_html = self.client.get(f"/api/opportunities/{created['slug']}").get_data(as_text=True)
+        inventory_html = self.client.get("/api/inventory").get_data(as_text=True)
+        cards_html = self.client.get("/api/cards").get_data(as_text=True)
+
+        self.assertIn("Converted", detail_html)
+        self.assertIn("Owned Inventory", inventory_html)
+        self.assertIn("1900000", inventory_html)
+        self.assertIn("Misty", inventory_html)
+        self.assertNotIn(created["slug"], cards_html)
+
+    def test_convert_opportunity_to_active_listing_when_listing_fields_are_present(self):
+        created = self.client.post(
+            "/api/opportunities",
+            json={
+                "card_name": "Erika's Invitation",
+                "card_rarity": "SAR",
+                "card_language": "Japanese",
+                "source": "SNKRDUNK",
+                "link": "https://example.test/erika",
+                "price_idr": "2500000",
+            },
+        ).get_json()
+
+        response = self.client.post(
+            f"/api/opportunities/{created['slug']}/convert",
+            json={
+                "bought_at_price_idr": "2400000",
+                "tokopedia_url": "https://www.tokopedia.com/shop/erika-invitation",
+                "listing_price_idr": "3000000",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["created_listing"])
+
+        _, products = load_config(self.config_path)
+        added = next((p for p in products if p.tokopedia_url == "https://www.tokopedia.com/shop/erika-invitation"), None)
+        self.assertIsNotNone(added)
+        self.assertEqual(added.own_price_idr, 3000000)
+
+        cards_html = self.client.get("/api/cards").get_data(as_text=True)
+        inventory_html = self.client.get("/api/inventory").get_data(as_text=True)
+        self.assertIn(added.slug, cards_html)
+        self.assertIn("Owned Inventory", inventory_html)
+        self.assertIn("listed", inventory_html)
+
+    def test_inventory_page_combines_active_and_sold_listing_quantities(self):
+        html_text = self.client.get("/api/inventory").get_data(as_text=True)
+
+        self.assertIn("Owned Inventory", html_text)
+        self.assertIn(self.active.slug, html_text)
+        self.assertIn(self.sold.slug, html_text)
+        self.assertIn("active", html_text)
+        self.assertIn("sold", html_text)
+        self.assertIn("Qty", html_text)
+
+    def test_opportunities_page_uses_grid_shell(self):
+        self.client.post(
+            "/api/opportunities",
+            json={
+                "card_name": "Pikachu",
+                "card_rarity": "PROMO",
+                "card_language": "Japanese",
+                "source": "Tokopedia",
+                "link": "https://example.test/pikachu",
+                "price_idr": "500000",
+            },
+        )
+        self.assert_fragment_has(
+            "/api/opportunities",
+            "Buy List Opportunities",
             "ag-grid-host",
             "data-columns",
             "data-rows",
@@ -770,6 +888,8 @@ class WebUiTests(unittest.TestCase):
             self.assertIn("colorSchemeDarkBlue", html_text)
             self.assertIn("themeQuartz.withPart", html_text)
             self.assertIn("Repricing Queue", html_text)
+            self.assertIn("Store Listings", html_text)
+            self.assertIn("Inventory", html_text)
             self.assertIn("actionBadge", html_text)
             self.assertIn("suggestedMoney", html_text)
             self.assertIn("filterRepricing", html_text)

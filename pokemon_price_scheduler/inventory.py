@@ -22,6 +22,23 @@ class SaleInput:
     net_income_idr: int
 
 
+@dataclass(frozen=True)
+class OpportunityInput:
+    card_name: str
+    card_rarity: str
+    card_language: str
+    source: str
+    link: str
+    price_idr: int
+
+
+@dataclass(frozen=True)
+class ConvertOpportunityInput:
+    bought_at_price_idr: int
+    tokopedia_url: str = ""
+    listing_price_idr: int | None = None
+
+
 def connect(path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
@@ -74,14 +91,206 @@ def init_db(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS opportunities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            slug TEXT NOT NULL UNIQUE,
+            card_name TEXT NOT NULL,
+            card_rarity TEXT NOT NULL,
+            card_language TEXT NOT NULL,
+            source TEXT NOT NULL,
+            link TEXT NOT NULL,
+            price_idr INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            converted_inventory_id INTEGER,
+            converted_listing_id INTEGER,
+            created_at TEXT NOT NULL,
+            converted_at TEXT DEFAULT '',
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS inventory_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            card_id TEXT NOT NULL REFERENCES cards(id),
+            opportunity_id INTEGER REFERENCES opportunities(id),
+            listing_id INTEGER REFERENCES listings(id),
+            slug TEXT NOT NULL,
+            title TEXT NOT NULL,
+            card_name TEXT NOT NULL,
+            card_rarity TEXT NOT NULL,
+            card_language TEXT NOT NULL,
+            bought_at_price_idr INTEGER NOT NULL,
+            quantity INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'owned',
+            source TEXT DEFAULT '',
+            link TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS idx_listings_slug_status ON listings(slug, status);
         CREATE INDEX IF NOT EXISTS idx_listings_normalized_status ON listings(normalized_url, status);
         CREATE INDEX IF NOT EXISTS idx_sales_sold_at ON sales(sold_at);
+        CREATE INDEX IF NOT EXISTS idx_opportunities_status ON opportunities(status);
+        CREATE INDEX IF NOT EXISTS idx_inventory_items_slug ON inventory_items(slug);
         """
     )
     _ensure_column(conn, "sales", "bought_at_price_idr", "INTEGER")
     _ensure_column(conn, "sales", "sold_price_idr", "INTEGER")
     conn.commit()
+
+
+def create_opportunity(data: OpportunityInput, path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
+    with closing(connect(path)) as conn:
+        now = utc_now().isoformat()
+        base_slug = slugify(" ".join([data.card_name, data.card_rarity, data.card_language]))
+        slug = _unique_opportunity_slug(conn, base_slug)
+        cursor = conn.execute(
+            """
+            INSERT INTO opportunities(
+                slug, card_name, card_rarity, card_language, source, link,
+                price_idr, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)
+            """,
+            (
+                slug,
+                data.card_name,
+                data.card_rarity,
+                data.card_language,
+                data.source,
+                data.link,
+                data.price_idr,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        opportunity_id = int(cursor.lastrowid)
+    return get_opportunity(slug, path) or {"id": opportunity_id, "slug": slug}
+
+
+def list_opportunities(path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
+    with closing(connect(path)) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, slug, card_name, card_rarity, card_language, source, link,
+                   price_idr, status, converted_inventory_id, converted_listing_id,
+                   created_at, converted_at
+            FROM opportunities
+            ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, id DESC
+            """
+        ).fetchall()
+    return [_opportunity_row(row) for row in rows]
+
+
+def get_opportunity(slug: str, path: Path = DEFAULT_DB_PATH) -> dict[str, Any] | None:
+    with closing(connect(path)) as conn:
+        row = conn.execute(
+            """
+            SELECT id, slug, card_name, card_rarity, card_language, source, link,
+                   price_idr, status, converted_inventory_id, converted_listing_id,
+                   created_at, converted_at
+            FROM opportunities
+            WHERE slug = ?
+            """,
+            (slug,),
+        ).fetchone()
+    return _opportunity_row(row) if row else None
+
+
+def convert_opportunity(
+    slug: str,
+    data: ConvertOpportunityInput,
+    *,
+    product: Product | None = None,
+    path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    with closing(connect(path)) as conn:
+        now = utc_now().isoformat()
+        row = conn.execute(
+            """
+            SELECT id, slug, card_name, card_rarity, card_language, source, link,
+                   price_idr, status, converted_inventory_id, converted_listing_id,
+                   created_at, converted_at
+            FROM opportunities
+            WHERE slug = ?
+            """,
+            (slug,),
+        ).fetchone()
+        if row is None:
+            return None
+        opportunity = _opportunity_row(row)
+        product_for_card = product or _product_from_opportunity(opportunity, data)
+        _upsert_card(conn, product_for_card, now)
+        listing_id = None
+        if product is not None and product.tokopedia_url:
+            listing_id = _ensure_active_listing(conn, product, now)
+        inventory_id = _create_inventory_item(conn, opportunity, product_for_card, data, listing_id, now)
+        conn.execute(
+            """
+            UPDATE opportunities
+            SET status = 'converted',
+                converted_inventory_id = ?,
+                converted_listing_id = ?,
+                converted_at = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (inventory_id, listing_id, now, now, opportunity["id"]),
+        )
+        conn.commit()
+    return get_opportunity(slug, path)
+
+
+def inventory_rows(path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
+    with closing(connect(path)) as conn:
+        owned_rows = conn.execute(
+            """
+            SELECT slug, title, card_name, card_rarity, card_language,
+                   bought_at_price_idr, quantity, status, source, link
+            FROM inventory_items
+            ORDER BY id DESC
+            """
+        ).fetchall()
+        listing_rows = conn.execute(
+            """
+            SELECT l.slug, l.title, c.name, c.rarity, c.language,
+                   l.current_price_idr, l.status
+            FROM listings l
+            LEFT JOIN cards c ON c.id = l.card_id
+            ORDER BY l.id DESC
+            """
+        ).fetchall()
+    rows = [
+        {
+            "slug": row[0],
+            "title": row[1],
+            "card_name": row[2],
+            "card_rarity": row[3],
+            "card_language": row[4],
+            "bought_at_price_idr": int(row[5] or 0),
+            "quantity": int(row[6] or 0),
+            "status": row[7],
+            "source": row[8],
+            "link": row[9],
+            "type": "owned",
+        }
+        for row in owned_rows
+    ]
+    rows.extend(
+        {
+            "slug": row[0],
+            "title": row[1],
+            "card_name": row[2] or row[1],
+            "card_rarity": row[3] or "-",
+            "card_language": row[4] or "-",
+            "bought_at_price_idr": int(row[5] or 0),
+            "quantity": 1 if row[6] != "sold" else 0,
+            "status": row[6],
+            "source": "Tokopedia listing",
+            "link": "",
+            "type": "listing",
+        }
+        for row in listing_rows
+    )
+    return rows
 
 
 def sync_products(products: list[Product], path: Path = DEFAULT_DB_PATH) -> None:
@@ -439,3 +648,87 @@ def parse_idr(value: Any) -> int | None:
     if not digits:
         return None
     return int(digits)
+
+
+def slugify(value: str) -> str:
+    tokens = [token for token in re.sub(r"[^a-z0-9]+", "-", value.lower()).split("-") if token]
+    return "-".join(tokens)[:90] or "opportunity"
+
+
+def _unique_opportunity_slug(conn: sqlite3.Connection, base_slug: str) -> str:
+    slug = base_slug or "opportunity"
+    index = 2
+    while conn.execute("SELECT 1 FROM opportunities WHERE slug = ?", (slug,)).fetchone():
+        suffix = f"-{index}"
+        slug = f"{base_slug[:90 - len(suffix)]}{suffix}"
+        index += 1
+    return slug
+
+
+def _opportunity_row(row: tuple[Any, ...]) -> dict[str, Any]:
+    return {
+        "id": int(row[0]),
+        "slug": row[1],
+        "card_name": row[2],
+        "card_rarity": row[3],
+        "card_language": row[4],
+        "source": row[5],
+        "link": row[6],
+        "price_idr": int(row[7] or 0),
+        "status": row[8],
+        "converted_inventory_id": int(row[9]) if row[9] is not None else None,
+        "converted_listing_id": int(row[10]) if row[10] is not None else None,
+        "created_at": row[11] or "",
+        "converted_at": row[12] or "",
+        "title": " ".join(part for part in (row[2], row[3], row[4]) if part),
+    }
+
+
+def _product_from_opportunity(opportunity: dict[str, Any], data: ConvertOpportunityInput) -> Product:
+    title = opportunity["title"]
+    return Product(
+        title=title,
+        own_price_idr=data.listing_price_idr or data.bought_at_price_idr,
+        tokopedia_url=data.tokopedia_url,
+        search_terms=[title],
+        sources=[],
+        status="active" if data.tokopedia_url else "owned",
+        added_at=utc_now().isoformat(),
+    )
+
+
+def _create_inventory_item(
+    conn: sqlite3.Connection,
+    opportunity: dict[str, Any],
+    product: Product,
+    data: ConvertOpportunityInput,
+    listing_id: int | None,
+    now: str,
+) -> int:
+    cursor = conn.execute(
+        """
+        INSERT INTO inventory_items(
+            card_id, opportunity_id, listing_id, slug, title, card_name,
+            card_rarity, card_language, bought_at_price_idr, quantity, status,
+            source, link, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            _card_id(product),
+            opportunity["id"],
+            listing_id,
+            product.slug,
+            product.title,
+            opportunity["card_name"],
+            opportunity["card_rarity"],
+            opportunity["card_language"],
+            data.bought_at_price_idr,
+            1,
+            "listed" if listing_id is not None else "owned",
+            opportunity["source"],
+            opportunity["link"],
+            now,
+            now,
+        ),
+    )
+    return int(cursor.lastrowid)

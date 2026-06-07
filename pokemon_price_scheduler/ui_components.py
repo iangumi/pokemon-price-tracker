@@ -693,34 +693,111 @@ def sold_cards_fragment(products: list[Any], summary: dict[str, Any] | None = No
     return summary_panel + f'<div class="cards-grid">{"".join(cards)}</div>'
 
 
-def opportunities_fragment(products: list[dict[str, Any]]) -> str:
+def opportunities_fragment(opportunities: list[dict[str, Any]]) -> str:
     rows = []
-    for product in products:
-        rows.append({
-            "title": product.get("title", product["slug"]),
-            "slug": product["slug"],
-            "set": "-",
-            "global_avg": product.get("global_average_idr"),
-            "local_supply": "-",
-            "score": "-",
-            "note": "Review as potential import if global listings are liquid and local supply is thin.",
-        })
+    for opportunity in opportunities:
+        rows.append(
+            {
+                "title": opportunity.get("title") or opportunity.get("card_name"),
+                "slug": opportunity["slug"],
+                "card_rarity": opportunity.get("card_rarity", "-"),
+                "card_language": opportunity.get("card_language", "-"),
+                "source": opportunity.get("source", "-"),
+                "link": opportunity.get("link", ""),
+                "price_idr": opportunity.get("price_idr"),
+                "status": opportunity.get("status", "open"),
+            }
+        )
+    content = toolbar(button("Add Buy List Card", onclick="openOpportunityModal()", variant="primary")) + data_table(
+        ["title", "card_rarity", "card_language", "source", "price_idr", "status"],
+        rows,
+        class_name="data-table--compact",
+        columns=[
+            {"field": "title", "headerName": "Card", "cellRenderer": "opportunityLink", "flex": 2, "minWidth": 280},
+            {"field": "card_rarity", "headerName": "Rarity", "width": 120},
+            {"field": "card_language", "headerName": "Language", "width": 130},
+            {"field": "source", "headerName": "Source", "width": 150},
+            {"field": "price_idr", "headerName": "Price", "cellRenderer": "moneyValue", "width": 150, "type": "numericColumn"},
+            {"field": "status", "headerName": "Status", "cellRenderer": "statusBadge", "width": 140, "alwaysRender": True},
+        ],
+    )
     return panel(
-        "Opportunity Review Queue",
+        "Buy List Opportunities",
+        content if rows else toolbar(button("Add Buy List Card", onclick="openOpportunityModal()", variant="primary"))
+        + empty_state("No opportunities yet", "Add a buy-list card to start tracking purchase opportunities."),
+        subtitle="Cards you are considering buying before they become owned inventory or active listings.",
+    )
+
+
+def opportunity_detail_fragment(opportunity: dict[str, Any]) -> str:
+    status = opportunity.get("status", "open")
+    facts = metric_grid(
+        [
+            metric_card("Opportunity price", idr(opportunity.get("price_idr")), "Current buy-list price", icon="market"),
+            metric_card("Rarity", h(opportunity.get("card_rarity", "-")), "Card rarity", icon="cards"),
+            metric_card("Language", h(opportunity.get("card_language", "-")), "Card language", icon="cards"),
+            metric_card("Status", badge(status.title(), "success" if status == "converted" else "warning"), "Buying pipeline status", icon="queue"),
+        ]
+    )
+    detail_rows = [
+        ("Card", opportunity.get("card_name", "-")),
+        ("Rarity", opportunity.get("card_rarity", "-")),
+        ("Language", opportunity.get("card_language", "-")),
+        ("Source", opportunity.get("source", "-")),
+        ("Price", idr(opportunity.get("price_idr"))),
+        ("Created", opportunity.get("created_at", "")[:10] if opportunity.get("created_at") else "-"),
+        ("Converted", opportunity.get("converted_at", "")[:10] if opportunity.get("converted_at") else "-"),
+    ]
+    source_link = link_button("Open Source", opportunity.get("link", ""), variant="secondary", external=True) if opportunity.get("link") else ""
+    convert = ""
+    if status != "converted":
+        convert = button(
+            "Convert to Inventory",
+            onclick=f"openConvertOpportunityModal('{h(opportunity.get('slug', ''))}', '{h(opportunity.get('price_idr', ''))}')",
+            variant="primary",
+        )
+    body = "".join(f"<dt>{h(label)}</dt><dd>{value if label == 'Price' else h(value)}</dd>" for label, value in detail_rows)
+    return (
+        toolbar(link_button("Back to Opportunities", "/opportunities", variant="secondary"), source_link, convert)
+        + panel("Opportunity Snapshot", facts, subtitle="Buy-list details before conversion.")
+        + panel("Card Opportunity Detail", f'<dl class="identity-list">{body}</dl>')
+    )
+
+
+def inventory_fragment(rows: list[dict[str, Any]]) -> str:
+    table_rows = [
+        {
+            "title": row.get("title", "-"),
+            "slug": row.get("slug", ""),
+            "card_rarity": row.get("card_rarity", "-"),
+            "card_language": row.get("card_language", "-"),
+            "bought_at_price_idr": row.get("bought_at_price_idr"),
+            "quantity": row.get("quantity"),
+            "status": row.get("status"),
+            "source": row.get("source", "-"),
+            "type": row.get("type", "-"),
+        }
+        for row in rows
+    ]
+    return panel(
+        "Owned Inventory",
         data_table(
-            ["title", "set", "global_avg", "local_supply", "score", "note"],
-            rows,
+            ["title", "card_rarity", "card_language", "bought_at_price_idr", "quantity", "status", "source", "type"],
+            table_rows,
             class_name="data-table--compact",
             columns=[
                 {"field": "title", "headerName": "Card", "cellRenderer": "cardLink", "flex": 2, "minWidth": 280},
-                {"field": "set", "headerName": "Set", "width": 100},
-                {"field": "global_avg", "headerName": "Global Avg", "cellRenderer": "moneyValue", "width": 150, "type": "numericColumn"},
-                {"field": "local_supply", "headerName": "Local Supply", "width": 140},
-                {"field": "score", "headerName": "Score", "width": 100},
-                {"field": "note", "headerName": "Note", "flex": 2, "minWidth": 320},
+                {"field": "card_rarity", "headerName": "Rarity", "width": 120},
+                {"field": "card_language", "headerName": "Language", "width": 130},
+                {"field": "bought_at_price_idr", "headerName": "Bought Price", "cellRenderer": "moneyValue", "width": 160, "type": "numericColumn"},
+                {"field": "quantity", "headerName": "Qty", "width": 90, "type": "numericColumn"},
+                {"field": "status", "headerName": "Status", "cellRenderer": "statusBadge", "width": 130, "alwaysRender": True},
+                {"field": "source", "headerName": "Source", "width": 170},
+                {"field": "type", "headerName": "Type", "width": 120},
             ],
-        ),
-        subtitle="First-pass candidates, not automatic buy recommendations.",
+        )
+        if table_rows else empty_state("No inventory yet", "Convert an opportunity or add an active listing to populate inventory."),
+        subtitle="Owned stock from converted opportunities plus active and sold listing lifecycles.",
     )
 
 
