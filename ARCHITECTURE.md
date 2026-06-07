@@ -4,6 +4,8 @@
 
 A daily/on-demand **Pokemon card price checker** for Tokopedia store listings. It scrapes competitor prices from Tokopedia, eBay, and SnkrDunk, compares them against your own listings, flags pricing gaps, and generates HTML/MD/CSV reports.
 
+For coding-agent workflow rules, including when large features or refactors must update docs, see `AGENTS.md`.
+
 ---
 
 ## Technology Stack

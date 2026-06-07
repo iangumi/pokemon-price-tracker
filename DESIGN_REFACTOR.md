@@ -8,6 +8,8 @@
 - Make Repricing Queue usable as a daily workflow page with action summaries, filters, sorting, and suggested prices.
 - Keep future frontend refactors reproducible by documenting the current navigation, data flow, component vocabulary, and visual rules.
 
+For major frontend changes, follow `AGENTS.md`: update this document in the same task when navigation, page decisions, visual rules, component vocabulary, modals, AG Grid behavior, or verification steps change.
+
 ## Design Direction
 
 The live app now uses a minimal retro handheld direction: LCD-green panels, cream case surfaces, black pixel borders, square controls, compact monospace labels, inline SVG icons, and dense but readable data tables.

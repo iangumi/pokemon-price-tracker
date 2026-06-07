@@ -4,6 +4,10 @@ This tool checks your Tokopedia Pokemon card listings at or above Rp 500,000 aga
 
 It is designed to run both on demand and from a daily schedule.
 
+## Agent Workflow
+
+Coding agents should read `AGENTS.md` before making changes. It defines the project rule for large features and refactors: update the relevant docs in the same task, including `README.md`, `ARCHITECTURE.md`, `DESIGN_REFACTOR.md`, and domain-specific notes when behavior changes.
+
 ## Quick Start
 
 ```bash
