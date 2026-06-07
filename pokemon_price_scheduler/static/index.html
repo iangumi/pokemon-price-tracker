@@ -897,15 +897,19 @@
     }
     .identity-layout {
       display: grid;
-      grid-template-columns: minmax(150px, 30%) minmax(0, 1fr);
+      grid-template-columns: minmax(180px, 30%) minmax(0, 70%);
       gap: var(--sp-3);
       align-items: start;
+    }
+    .identity-picture-block,
+    .identity-detail-block {
+      min-width: 0;
     }
     .identity-media {
       display: grid;
       gap: 8px;
       align-content: start;
-      justify-items: start;
+      justify-items: stretch;
     }
     .identity-media--empty {
       min-height: 180px;
@@ -919,7 +923,8 @@
     }
     .card-image {
       display: block;
-      width: min(100%, 210px);
+      width: 100%;
+      max-width: 260px;
       aspect-ratio: 3 / 4;
       object-fit: contain;
       object-position: center;

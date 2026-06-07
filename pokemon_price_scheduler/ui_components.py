@@ -390,15 +390,18 @@ def identity_panel(product: Any, image_url: str = "") -> str:
     image_block = ""
     if image_url:
         image_block = f'''
-        <div class="identity-media">
+        <div class="identity-picture-block identity-media">
           <img class="card-image" src="{h(image_url)}" alt="Product image for {h(product.title)}">
         </div>'''
     else:
         image_block = '''
-        <div class="identity-media identity-media--empty">
+        <div class="identity-picture-block identity-media identity-media--empty">
           <span>No product image cached yet</span>
         </div>'''
-    return panel("Card Identity", f'<div class="identity-layout">{image_block}<dl class="identity-list">{body}</dl></div>')
+    return panel(
+        "Card Identity",
+        f'<div class="identity-layout">{image_block}<div class="identity-detail-block"><dl class="identity-list">{body}</dl></div></div>',
+    )
 
 
 def card_detail_fragment(

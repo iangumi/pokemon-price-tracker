@@ -169,6 +169,8 @@ class WebUiTests(unittest.TestCase):
         self.assertIn('onclick="updateSearchTerm(&quot;', html_text)
         self.assertLess(html_text.index("Price Review Snapshot"), html_text.index("Card Identity"))
         self.assertIn("identity-layout", html_text)
+        self.assertIn("identity-picture-block", html_text)
+        self.assertIn("identity-detail-block", html_text)
 
     def test_card_detail_renders_cached_image_in_identity_panel(self):
         with patch.object(web, "_ensure_card_image", return_value=f"/card-images/{self.active.slug}"):
