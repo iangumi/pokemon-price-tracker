@@ -94,7 +94,7 @@ The live app serves a single-page interface with:
 - `/repricing` - daily Repricing Queue with action summaries, filters, sorting, suggested prices, and recommended action
 - `/reports` - generated report links plus Source Health diagnostics from the latest scheduler trace
 - `/opportunities` - local-supply/global-demand opportunity shortlist
-- `/soldcards` - sold listing review and restore workflow
+- `/soldcards` - sold listing review, sales income capture, and restock workflow
 
 The frontend is a Flask-served SPA using Alpine.js, AG Grid Community, server-rendered HTML fragments, and a minimal retro handheld design system. AG Grid CSS and JavaScript are vendored under `static/vendor/ag-grid/` and loaded by `static/index.html`.
 
@@ -107,7 +107,7 @@ The live app uses the same Flask shell for every navigation route, then fetches 
 - **Reports** - generated report files plus Source Health. Source Health was moved here so dashboard space stays focused on store operation.
 - **Opportunities** - first-pass buying/import review queue.
 - **Repricing Queue** - full pricing action workflow with summaries, filters, sorting, suggested prices, and recommended action.
-- **Sold Cards** - sold/delisted listing review and restore workflow.
+- **Sold Cards** - sales review and income capture. Sold rows show listing price, sold price, bought price, sold date, and net income. Existing sold cards can be edited, and restocking creates a new active listing lifecycle while preserving sale history.
 
 Menu icons are inline SVGs embedded in `static/index.html`; no icon library is required.
 
@@ -138,6 +138,24 @@ The Repricing Queue recommends:
 - `Raise price` when Tokopedia price is more than 10% below market average
 - `Missing market data` when market average is unavailable
 - `Aligned` when price is within +/-10% of market average
+
+## Inventory and Sales Tracking
+
+The live app now has a proper inventory/sales layer in SQLite alongside the legacy product config.
+
+- `config/products.json` still keeps the scheduler-compatible listing config and status flags.
+- `data/price_history.sqlite3` now also stores `cards`, `listings`, and `sales` tables for inventory lifecycle and income analysis.
+- Active cards are live Tokopedia listings.
+- Sold cards are completed listing lifecycles with sale metadata.
+- Restocking a sold card creates a new active listing lifecycle instead of overwriting the previous sale.
+
+Manual sale capture is available from card detail and sold cards:
+
+- **Mark Sold** on an active card requires sold date, sold price, bought price, and net income.
+- **Edit Sale** on a sold card updates sold date, sold price, bought price, and net income.
+- Net income is manually entered for now; sold price and bought price are stored separately so marketplace fee, profit, margin, and ROI calculations can be added later.
+
+See `INVENTORY_SALES.md` for the detailed model, endpoints, and future extension notes.
 
 ## Opportunity Discovery
 
@@ -191,6 +209,7 @@ pokemon_price_scheduler/
 ├── v2/                         # Run trace storage and newer pipeline persistence
 ├── static/vendor/ag-grid/      # Vendored AG Grid Community runtime and theme assets
 ├── ui_components.py            # Shared live-app HTML/AG Grid component builders
+├── inventory.py                # SQLite cards/listings/sales inventory and income tracking
 ├── models.py                  # Backward-compat shim → re-exports domain/
 ├── parsing.py                 # Backward-compat shim → re-exports infrastructure/
 ├── http.py                    # Backward-compat shim → re-exports infrastructure/

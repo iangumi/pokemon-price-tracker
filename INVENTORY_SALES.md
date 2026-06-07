@@ -1,0 +1,181 @@
+# Inventory and Sales Model
+
+This document captures the current direction for sold-card and income tracking in the Pokemon Price Tracker.
+
+## Current Direction
+
+The app is moving from a simple `status = sold` archive toward a proper inventory model:
+
+- `cards` represent parsed card identity.
+- `listings` represent Tokopedia listing lifecycles.
+- `sales` represent completed sales and income data.
+
+`config/products.json` still exists for scheduler compatibility. The live app mirrors listing lifecycle changes into SQLite so income analysis can use durable sale records without breaking the current scheduler.
+
+## SQLite Tables
+
+All inventory/sales tables live in `data/price_history.sqlite3` and are initialized by `pokemon_price_scheduler/inventory.py`.
+
+### `cards`
+
+Stable identity record derived from product title parsing.
+
+Important columns:
+
+- `id`: current card id, using the parsed product slug.
+- `name`
+- `set_symbol`
+- `card_number`
+- `rarity`
+- `language`
+- `condition`
+- `display_title`
+- `created_at`
+- `updated_at`
+
+### `listings`
+
+One Tokopedia listing lifecycle.
+
+Important columns:
+
+- `id`
+- `card_id`
+- `slug`
+- `title`
+- `tokopedia_url`
+- `normalized_url`
+- `status`: `active` or `sold`
+- `listed_price_idr`
+- `current_price_idr`
+- `added_at`
+- `sold_at`
+- `lifecycle`
+- `created_at`
+- `updated_at`
+
+Restocking should create a new active listing lifecycle, not overwrite the old sale.
+
+### `sales`
+
+One completed sale record linked to a sold listing.
+
+Important columns:
+
+- `listing_id`
+- `card_id`
+- `slug`
+- `sold_at`
+- `sold_price_idr`: gross sale price before marketplace fee.
+- `bought_at_price_idr`: acquisition cost.
+- `net_income_idr`: manually entered net income.
+- `created_at`
+- `updated_at`
+
+The legacy `bought_at` column may exist in SQLite for backward compatibility, but the current app does not use it. The correct field is `bought_at_price_idr`.
+
+## Manual Workflows
+
+### Mark Active Card Sold
+
+Use `POST /api/cards/<slug>/mark-sold`.
+
+Required JSON:
+
+```json
+{
+  "sold_at": "2026-06-07",
+  "sold_price_idr": 2500000,
+  "bought_at_price_idr": 1500000,
+  "net_income_idr": 2300000
+}
+```
+
+Behavior:
+
+- Updates the config product to `status = sold`.
+- Sets config `sold_at`.
+- Marks the active SQLite listing as sold.
+- Creates or updates the linked `sales` row.
+- Removes the card from active cards and repricing queue.
+- Shows the card on Sold Cards.
+
+### Edit Existing Sold Card
+
+Use `POST /api/cards/<slug>/sale-details`.
+
+Required JSON is the same as Mark Sold.
+
+Behavior:
+
+- Keeps the card sold.
+- Updates `sold_at` in config and SQLite.
+- Updates `sold_price_idr`, `bought_at_price_idr`, and `net_income_idr`.
+- Allows backfilling existing sold cards that were detected by store sync before income fields existed.
+
+### Restock
+
+Use `PUT /api/cards/<slug>/revert-sold`.
+
+Behavior:
+
+- Updates the config product back to `active`.
+- Creates a new active listing lifecycle in SQLite.
+- Preserves the previous sold listing and sale record.
+
+## UI Rules
+
+Card detail:
+
+- Active cards show `Mark Sold`.
+- Sold cards show `Edit Sale`.
+
+Sold Cards page:
+
+- Starts with `Sales Summary`.
+- Shows listing price, sold price, bought price, sold date, and net income.
+- Provides `Edit Sale` and `Mark Active`.
+
+The sale modal must collect:
+
+- Sold date
+- Sold price
+- Bought price
+- Net income
+
+Do not rename bought price to bought date. Bought date is not part of the current workflow.
+
+## Income Analysis Notes
+
+Current income analytics are intentionally simple:
+
+- Net income is manual.
+- Monthly/weekly summaries use `sales.sold_at`.
+- Totals use `sales.net_income_idr`.
+
+Future marketplace-fee analysis should build on the captured gross sold price:
+
+- `marketplace_fee_percent`
+- `marketplace_fee_idr = sold_price_idr * marketplace_fee_percent`
+- payout/net estimate
+- profit = net income or payout minus bought price
+- margin percent
+- ROI percent
+
+When adding calculated fields, keep manual `net_income_idr` available as an override or actual payout field. Do not silently replace user-entered net income.
+
+## Compatibility Notes
+
+- The scheduler still reads products from `config/products.json`.
+- Dashboard, Cards, and Repricing Queue continue to filter active listings from config.
+- Sold Cards and sale summaries read from SQLite after syncing config products into inventory tables.
+- Tests should cover both config state and SQLite inventory state after each lifecycle mutation.
+
+## Regression Checklist
+
+- Mark Sold requires sold date, sold price, bought price, and net income.
+- Mark Sold removes the item from My Cards and Repricing Queue.
+- Mark Sold creates a `sales` row.
+- Edit Sale updates existing sold cards without creating duplicate sales.
+- Restock creates a new active listing lifecycle while preserving the old sale.
+- Existing scheduler runs and price history snapshots still work for active listings.

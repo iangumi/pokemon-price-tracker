@@ -25,7 +25,7 @@ The design should feel like an operational dashboard running on a retro handheld
 - **Reports** (`/reports`, `/api/reports`) - generated report links and Source Health diagnostics.
 - **Opportunities** (`/opportunities`, `/api/opportunities`) - first-pass buying/import review queue.
 - **Repricing Queue** (`/repricing`, `/api/repricing`) - full daily pricing action workflow.
-- **Sold Cards** (`/soldcards`, `/api/soldcards`) - sold/delisted listing review and restore workflow.
+- **Sold Cards** (`/soldcards`, `/api/soldcards`) - sales review and income capture. It shows completed listing lifecycles with sold price, bought price, sold date, and net income.
 
 Source Health intentionally lives in Reports, not Dashboard. Dashboard should stay focused on live store signals and immediate pricing work.
 
@@ -51,7 +51,7 @@ Source Health intentionally lives in Reports, not Dashboard. Dashboard should st
 - Reports owns Source Health and generated report links (`latest.md`, `latest.csv`).
 - Card Detail is a price-review page: action toolbar, search-term editor, Price Review Snapshot, chart/history, suggested prices, identity, and source evidence.
 - Repricing Queue is the daily workflow surface: it summarizes Lower price, Raise price, Missing market data, and Aligned cards, then lets the user filter and sort the actionable queue.
-- Sold Cards reuses the same card/action language as active cards.
+- Sold Cards reuses the same card/action language as active cards, but focuses on sale analytics. The page starts with `Sales Summary`, then product cards with listing price, sold price, bought price, sold date, net income, `Edit Sale`, and `Mark Active` restock actions.
 - Opportunities remains a review queue, not a buy recommendation engine.
 
 ## Dashboard Data Rules
@@ -70,6 +70,19 @@ Source Health intentionally lives in Reports, not Dashboard. Dashboard should st
 - Show the graph/history section before secondary identity/source evidence so pricing review is the primary task.
 - Handle missing market average safely: show `-` for missing latest market average and `Insufficient market data` for suggested prices.
 - Keep source evidence available below the price-review sections for debugging scraper decisions.
+- Active card details include `Mark Sold`.
+- Sold card details include `Edit Sale`.
+- The shared sale modal must collect sold date, sold price, bought price, and net income. Do not relabel bought price as bought date.
+
+## Sold Cards and Income Rules
+
+- Sold Cards should be treated as completed listing lifecycles, not as a separate card type.
+- Restocking should create a new active listing lifecycle and keep the old sale history intact.
+- `sold_price_idr` is the gross sale amount before marketplace deductions.
+- `bought_at_price_idr` is the acquisition cost.
+- `net_income_idr` is manual for now and should not be inferred until marketplace-fee rules are explicitly added.
+- Future marketplace fee analysis should use `sold_price_idr` as the base, then derive fee amount, payout, profit, margin, and ROI without deleting the manually entered net income.
+- Existing sold cards must remain editable because sales data can be backfilled after the item was marked sold by sync.
 
 ## AG Grid Migration
 
@@ -109,5 +122,8 @@ Source Health intentionally lives in Reports, not Dashboard. Dashboard should st
 - On Reports, confirm Source Health renders there and not on Dashboard.
 - Confirm AG Grid sorting/filtering/pagination work on My Cards, Source Evidence, and Repricing Queue.
 - Confirm Repricing Queue summary counts, action filters, and sort controls update the grid correctly.
+- Mark an active card sold and confirm it disappears from My Cards/Repricing Queue, appears in Sold Cards, and saves sold price, bought price, sold date, and net income.
+- Edit an existing sold card and confirm the same sale fields update in Sold Cards.
+- Restock a sold card with Mark Active and confirm the old sale remains visible while the card returns to My Cards as a new active lifecycle.
 - Trigger scheduler and single-card refresh; buttons should disable/show progress.
 - Confirm source failures render as status badges on Reports.

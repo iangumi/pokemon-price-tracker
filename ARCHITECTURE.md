@@ -59,6 +59,7 @@ pokemon_price_scheduler/
 │   └── vendor/ag-grid/        # Vendored AG Grid Community runtime and theme assets
 │
 ├── cli.py                       # CLI: run, sync-store, seed-config
+├── inventory.py                 # SQLite cards/listings/sales model for sold-card income tracking
 ├── ui_components.py             # Shared live-app HTML/AG Grid component builders
 ├── web.py                       # Flask app (serves SPA + API endpoints)
 ├── config.py                    # JSON config load/save for products.json
@@ -89,8 +90,22 @@ SQLite stores both run trace data and daily workflow data:
 - `source_fetches` - raw fetch status and source-level diagnostics
 - `analysis_decisions` - filtering and scoring decisions
 - `price_history` - one price snapshot per card after each scheduler run
+- `cards` - stable parsed card identity records for inventory/sales
+- `listings` - Tokopedia listing lifecycles linked to cards
+- `sales` - completed sale records with sold date, sold price, bought price, and net income
 
 `price_history` records `card_id`, `tokopedia_price`, `market_avg_price`, `delta_percent`, `alert_status`, `source_summary`, and `created_at`. It also stores run/result references where available. Snapshots are inserted from both the legacy `save_run()` path and the v2 `TraceStore.save_results()` path, so scheduler runs update history regardless of which persistence path is used.
+
+`inventory.py` owns the `cards` / `listings` / `sales` schema. During this transition, `config/products.json` remains scheduler-compatible source config, while SQLite is the source of truth for sale analytics. Web mutations mirror lifecycle changes into both places.
+
+### Inventory and Sales Lifecycle
+
+- A `card` is the parsed identity: name, set, number, rarity, language, and condition.
+- A `listing` is one Tokopedia listing lifecycle. Active cards and sold cards are listing states, not separate product types.
+- A `sale` is created when a listing is manually marked sold or when existing sold-card details are edited.
+- Restocking a sold card creates a new active listing lifecycle and preserves the prior sold listing and sale row.
+- Sale fields currently captured: `sold_at`, `sold_price_idr`, `bought_at_price_idr`, and `net_income_idr`.
+- Net income is manual. Sold price and bought price are stored separately to support future marketplace fee, profit, margin, and ROI calculations.
 
 ### Background Scheduler via Subprocess + SSE
 
@@ -185,7 +200,9 @@ Main output of a run. Fields: `product`, `run_at`, `source_results[]`, `market_m
 | `/api/cards/<slug>` | GET | Card detail HTML fragment |
 | `/api/reports` | GET | Reports page HTML fragment with report links and Source Health |
 | `/api/repricing` | GET | Repricing Queue HTML fragment |
-| `/api/cards/<slug>/revert-sold` | PUT | Revert sold card to active |
+| `/api/cards/<slug>/mark-sold` | POST | Mark active listing sold and record sold price, bought price, sold date, and net income |
+| `/api/cards/<slug>/sale-details` | POST | Edit sale details for existing sold cards |
+| `/api/cards/<slug>/revert-sold` | PUT | Restock a sold card by creating a new active listing lifecycle |
 | `/api/cards/<slug>/update-price` | PUT | Fetch current Tokopedia listing price |
 | `/api/opportunities` | GET | Opportunities table HTML fragment |
 | `/api/soldcards` | GET | Sold cards grid HTML fragment |
@@ -241,8 +258,9 @@ Single HTML file with:
 - **Repricing controls**: `filterRepricing(action)` and `sortRepricing(mode)` call AG Grid filter/sort APIs for the daily queue
 - **EventSource (`/run/status`)**: SSE client for live scheduler progress
 - **Modals**: Add Card modal (URL + keyword inputs)
+- **Sale modals**: Mark Sold/Edit Sale modal (sold date, sold price, bought price, net income)
 - **Toast system**: `showToast(message, type)` with success/error/info variants
-- **Scheduler operations**: `refreshCard()`, `syncNewProducts()`, `addCard()`, `updateSearchTerm()`, `revertSold()`, `updatePrice()`
+- **Scheduler operations**: `refreshCard()`, `syncNewProducts()`, `addCard()`, `updateSearchTerm()`, `revertSold()`, `updatePrice()`, `submitMarkSold()`
 
 ---
 
