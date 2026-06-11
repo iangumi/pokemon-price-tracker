@@ -52,8 +52,8 @@ Each product can include:
 - `title`: your Tokopedia title
 - `own_price_idr`: your current price
 - `tokopedia_url`: your listing URL
-- `search_terms`: search phrases to use for matching
-- `sources`: reference URLs to check
+- `search_terms`: broad competitor search phrase; the first entry controls runtime Tokopedia, eBay sold, and SnkrDunk searches
+- `sources`: optional custom reference URLs; stored marketplace search URLs are ignored for the built-in competitor searches
 
 Titles containing words like `Japanese`, `JPN`, `JP`, `English`, or `ENG` are automatically tagged with language.
 
@@ -71,16 +71,17 @@ To create a runnable config from the synced store products:
 python3 -m pokemon_price_scheduler seed-config --pokemon-only
 ```
 
-This writes `config/products.generated.json` with Tokopedia competitor, eBay sold-listing, and SnkrDunk searches for each Pokemon product. Add exact SnkrDunk/Collectr URLs manually for high-value cards when available.
+This writes `config/products.generated.json` with initial search terms and marketplace sources for each Pokemon product. At runtime, both the scheduler and card-detail refresh rebuild Tokopedia competitor, eBay sold-listing, and SnkrDunk searches from `search_terms[0]`, so editing the card detail search term is the preferred way to broaden or narrow competitor discovery.
 
-Searches are generated from parsed card identity instead of full listing titles. For example:
+Initial searches are generated from parsed card identity instead of full listing titles. For example:
 
 `Meowth Ex SAR 114/080 m3 - Munikis / Nihility Zero - Kartu Pokemon TCG Japanese`
 
 becomes:
 
-- Tokopedia/eBay: `Meowth Ex SAR raw NM m3 Japanese`
-- SnkrDunk: `Meowth Ex SAR m3`
+- `search_terms[0]`: `Meowth Ex SAR raw NM m3 Japanese`
+
+The same phrase is used for Tokopedia, eBay sold listings, and SnkrDunk unless you edit it on the card detail page.
 
 ## Live App
 
@@ -189,6 +190,8 @@ The command is safe to run repeatedly; every run gets its own timestamped histor
 ## Notes About Sources
 
 Some sites render prices with JavaScript, rate-limit scrapers, or require cookies. When a source cannot be parsed, the report records a warning instead of silently guessing.
+
+Built-in competitor searches are generated at runtime from each product's first `search_terms` entry. The card detail page's search-term editor updates that value in `config/products.json`, and the next scheduler run or manual refresh uses it for Tokopedia, eBay sold listings, and SnkrDunk. If no search term is configured, the app falls back to the parsed card identity query and then the product title.
 
 Tokopedia competitor results are filtered with a simple scam/outlier rule: if there are enough results, prices far below the median are ignored before comparing your listing.
 

@@ -102,6 +102,12 @@ SQLite stores both run trace data and daily workflow data:
 
 `inventory.py` owns the `cards` / `listings` / `sales` / `opportunities` / `inventory_items` schema. During this transition, `config/products.json` remains scheduler-compatible source config, while SQLite is the source of truth for sale analytics, opportunity audit history, and owned inventory. Web mutations mirror lifecycle changes into both places when a listing must be scheduler-visible.
 
+### Runtime Competitor Sources
+
+`infrastructure/marketplace_sources.py` owns built-in marketplace search URL construction. For every scheduler run and card-detail refresh, Tokopedia, eBay sold, and SnkrDunk competitor sources are rebuilt from `Product.search_terms[0]`. The card detail `PUT /api/cards/<slug>/search-term` endpoint updates that value in `config/products.json`, making it the user-controlled query for all three competitor marketplaces.
+
+Stored `sources` entries with kinds `tokopedia_find`, `ebay_sold`, and `snkrdunk_search` are treated as legacy/stale URL snapshots and are replaced at runtime. Custom or unknown source kinds remain attached to the product and continue to be scraped after the generated competitor sources. If `search_terms` is empty, source generation falls back to parsed card identity and then the product title.
+
 ### Inventory and Sales Lifecycle
 
 - A `card` is the parsed identity: name, set, number, rarity, language, and condition.
