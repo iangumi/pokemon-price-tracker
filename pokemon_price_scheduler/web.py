@@ -43,6 +43,7 @@ from .inventory import (
     update_sale_details,
 )
 from .models import Product, Source, utc_now
+from .infrastructure.marketplace_sources import product_with_runtime_competitor_sources
 from .infrastructure.parsing import clean_text, extract_json_objects, walk_json
 from .reports import idr, pct
 from .ui_components import (
@@ -1000,7 +1001,6 @@ def _run_refresh_bg(slug: str):
     global _refreshing_slugs
     try:
         from .config import load_config
-        from .models import Product, Source
         from .scrapers import MarketplaceScraper
 
         _, products = load_config(CONFIG_PATH)
@@ -1008,28 +1008,12 @@ def _run_refresh_bg(slug: str):
         if product is None:
             return
 
-        # Build tokopedia source from search keyword
-        keyword = product.search_terms[0] if product.search_terms else slug.replace("-", " ")
-        tokopedia_url = f"https://www.tokopedia.com/find/{keyword.replace(' ', '-')}"
-        tokopedia_source = Source(
-            name="tokopedia competitors",
-            kind="tokopedia_find",
-            url=tokopedia_url,
-        )
+        analysis_product = product_with_runtime_competitor_sources(product)
 
         settings = {"tokopedia_scam_floor_ratio": 0, "tokopedia_min_legit_results": 0}
         scraper = MarketplaceScraper(settings)
         run_at = utc_now()
-        source_results = [scraper.scrape(tokopedia_source)]
-
-        # Build a minimal product with just the tokopedia source for analysis
-        analysis_product = Product(
-            title=product.title,
-            own_price_idr=product.own_price_idr,
-            tokopedia_url=product.tokopedia_url,
-            search_terms=product.search_terms,
-            sources=[tokopedia_source],
-        )
+        source_results = [scraper.scrape(source) for source in analysis_product.sources]
         from .ai import attach_ai_summaries
         from .analyze import analyze_product
         from .history import save_run

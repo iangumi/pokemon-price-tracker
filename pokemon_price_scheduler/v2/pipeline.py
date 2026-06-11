@@ -9,6 +9,7 @@ from typing import Protocol
 from pokemon_price_scheduler.domain.analysis import analyze_product
 from pokemon_price_scheduler.domain.models import Product, Source, SourceResult
 from pokemon_price_scheduler.infrastructure.http import classify_fetch_error, fetch_text, resolve_fetch_backend
+from pokemon_price_scheduler.infrastructure.marketplace_sources import product_with_runtime_competitor_sources
 from pokemon_price_scheduler.infrastructure.scrapers import MarketplaceScraper
 from pokemon_price_scheduler.store_sync import get_active_store_product_urls
 
@@ -131,6 +132,7 @@ class RunPipeline:
             filtered = [product for product in active_products if product.own_price_idr >= min_price]
             if self.options.limit is not None:
                 filtered = filtered[: self.options.limit]
+            filtered = [product_with_runtime_competitor_sources(product) for product in filtered]
             self._event(
                 Stage.VALIDATE_PRODUCTS,
                 Severity.INFO,
