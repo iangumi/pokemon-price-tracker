@@ -12,7 +12,7 @@ from pokemon_price_scheduler.config import load_config
 from pokemon_price_scheduler.inventory import connect as connect_inventory, income_summary, sold_card_rows
 from pokemon_price_scheduler.infrastructure import history as history_store
 from pokemon_price_scheduler.history import close_connection
-from pokemon_price_scheduler.models import Product
+from pokemon_price_scheduler.models import Product, SourceResult
 from pokemon_price_scheduler.scrapers import extract_store_products
 from pokemon_price_scheduler.ui_components import repricing_queue_fragment
 
@@ -171,6 +171,39 @@ class WebUiTests(unittest.TestCase):
         self.assertIn("identity-layout", html_text)
         self.assertIn("identity-picture-block", html_text)
         self.assertIn("identity-detail-block", html_text)
+
+    def test_update_search_term_controls_manual_refresh_sources(self):
+        response = self.client.put(
+            f"/api/cards/{self.active.slug}/search-term",
+            json={"search_term": "Paldean Fates Pokemon"},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        captured_sources = []
+        history_db = Path(self.tmp.name) / "refresh-history.sqlite3"
+
+        def fake_scrape(self, source):
+            captured_sources.append(source)
+            return SourceResult(source=source, observations=[])
+
+        with (
+            patch.object(history_store, "DB_PATH", history_db),
+            patch("pokemon_price_scheduler.infrastructure.scrapers.MarketplaceScraper.scrape", fake_scrape),
+            patch("pokemon_price_scheduler.ai.attach_ai_summaries", side_effect=lambda analyses: (analyses, [])),
+            patch("pokemon_price_scheduler.infrastructure.reports.write_reports"),
+        ):
+            web._run_refresh_bg(self.active.slug)
+
+        source_urls = {source.kind: source.url for source in captured_sources}
+        self.assertEqual(
+            source_urls["tokopedia_find"],
+            "https://www.tokopedia.com/find/paldean-fates-pokemon",
+        )
+        self.assertEqual(
+            source_urls["ebay_sold"],
+            "https://www.ebay.com/sch/i.html?_nkw=Paldean+Fates+Pokemon&LH_Sold=1&LH_Complete=1",
+        )
+        self.assertIn("keyword=Paldean+Fates+Pokemon", source_urls["snkrdunk_search"])
 
     def test_card_detail_renders_cached_image_in_identity_panel(self):
         with patch.object(web, "_ensure_card_image", return_value=f"/card-images/{self.active.slug}"):

@@ -62,6 +62,7 @@ class V2PipelineTests(unittest.TestCase):
                                 "title": "Pokemon Japanese PSA 10",
                                 "own_price_idr": 750000,
                                 "tokopedia_url": "https://www.tokopedia.com/store/card-a",
+                                "search_terms": ["Pokemon Japanese PSA 10"],
                                 "sources": [
                                     {
                                         "name": "tokopedia competitors",
@@ -87,8 +88,13 @@ class V2PipelineTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            fetched_urls = []
+
             def fake_fetch(url, timeout=30):
-                return TOKOPEDIA_HTML
+                fetched_urls.append(url)
+                if "tokopedia.com/find/pokemon-japanese-psa-10" in url:
+                    return TOKOPEDIA_HTML
+                return ""
 
             result = RunPipeline(
                 PipelineOptions(
@@ -111,6 +117,10 @@ class V2PipelineTests(unittest.TestCase):
 
             with closing(store.connect()) as conn:
                 fetch_count = conn.execute("SELECT COUNT(*) FROM source_fetches").fetchone()[0]
+                fetch_urls = [
+                    row[0]
+                    for row in conn.execute("SELECT url FROM source_fetches ORDER BY id").fetchall()
+                ]
                 history_count = conn.execute("SELECT COUNT(*) FROM price_history").fetchone()[0]
                 snapshots = conn.execute(
                     """
@@ -124,7 +134,14 @@ class V2PipelineTests(unittest.TestCase):
                     "SELECT price_idr, included, reason FROM analysis_decisions ORDER BY price_idr"
                 ).fetchall()
 
-            self.assertEqual(fetch_count, 1)
+            self.assertEqual(fetch_count, 6)
+            self.assertIn("https://www.tokopedia.com/find/pokemon-japanese-psa-10", fetch_urls)
+            self.assertIn(
+                "https://www.ebay.com/sch/i.html?_nkw=Pokemon+Japanese+PSA+10&LH_Sold=1&LH_Complete=1",
+                fetch_urls,
+            )
+            self.assertTrue(any("snkrdunk.com/v3/search" in url and "keyword=Pokemon+Japanese+PSA+10" in url for url in fetch_urls))
+            self.assertNotIn("https://example.test/search", fetch_urls)
             self.assertEqual(history_count, 2)
             snapshots_by_slug = {row[0]: row for row in snapshots}
             snapshot = snapshots_by_slug["pokemon-japanese-psa-10"]
