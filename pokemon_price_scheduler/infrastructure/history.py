@@ -82,8 +82,38 @@ def init_db(conn: sqlite3.Connection) -> None:
             source_summary TEXT DEFAULT '',
             created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS ai_repricing_advice (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            slug TEXT NOT NULL,
+            input_hash TEXT NOT NULL,
+            model TEXT DEFAULT '',
+            advice_json TEXT DEFAULT '{}',
+            status TEXT NOT NULL,
+            error TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS counterpart_candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            slug TEXT NOT NULL,
+            source_name TEXT NOT NULL,
+            source_kind TEXT NOT NULL,
+            source_url TEXT DEFAULT '',
+            title TEXT NOT NULL,
+            language TEXT DEFAULT '',
+            version TEXT DEFAULT '',
+            raw_price TEXT DEFAULT '',
+            currency TEXT DEFAULT 'IDR',
+            converted_price_idr INTEGER,
+            fx_rate_to_idr REAL,
+            confidence REAL DEFAULT 0,
+            match_reason TEXT DEFAULT '',
+            fetched_at TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS idx_product_results_slug ON product_results(slug);
         CREATE INDEX IF NOT EXISTS idx_price_history_card_created ON price_history(card_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_ai_repricing_slug_hash ON ai_repricing_advice(slug, input_hash);
+        CREATE INDEX IF NOT EXISTS idx_counterparts_slug ON counterpart_candidates(slug, confidence);
         """
     )
     _ALLOWED_MIGRATIONS = {
@@ -304,7 +334,8 @@ def get_observations_for_slug(slug: str) -> list[dict]:
     conn = connect()
     rows = conn.execute(
         """
-        SELECT o.source_name, o.source_kind, o.url, o.title, o.price_idr, o.is_legit
+        SELECT o.source_name, o.source_kind, o.url, o.title, o.price_idr,
+               o.is_legit, o.raw_price, o.relevance_score
         FROM observations o
         JOIN product_results pr ON pr.id = o.product_result_id
         WHERE pr.slug = ?
@@ -321,6 +352,156 @@ def get_observations_for_slug(slug: str) -> list[dict]:
             "title": row[3],
             "price_idr": int(row[4]),
             "is_legit": bool(row[5]),
+            "raw_price": str(row[6] or ""),
+            "relevance_score": float(row[7] or 0),
+        }
+        for row in rows
+    ]
+
+
+def latest_ai_repricing_advice(slug: str) -> dict | None:
+    conn = connect()
+    row = conn.execute(
+        """
+        SELECT slug, input_hash, model, advice_json, status, error, created_at
+        FROM ai_repricing_advice
+        WHERE slug = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (slug,),
+    ).fetchone()
+    return _ai_advice_row(row) if row else None
+
+
+def ai_repricing_advice_for_hash(slug: str, input_hash: str) -> dict | None:
+    conn = connect()
+    row = conn.execute(
+        """
+        SELECT slug, input_hash, model, advice_json, status, error, created_at
+        FROM ai_repricing_advice
+        WHERE slug = ? AND input_hash = ? AND status = 'ok'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (slug, input_hash),
+    ).fetchone()
+    return _ai_advice_row(row) if row else None
+
+
+def save_ai_repricing_advice(
+    *,
+    slug: str,
+    input_hash: str,
+    model: str,
+    advice: dict | None = None,
+    status: str = "ok",
+    error: str = "",
+    created_at: str | None = None,
+) -> dict:
+    conn = connect()
+    timestamp = created_at or utc_now().isoformat()
+    conn.execute(
+        """
+        INSERT INTO ai_repricing_advice(
+            slug, input_hash, model, advice_json, status, error, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            slug,
+            input_hash,
+            model,
+            json.dumps(advice or {}, ensure_ascii=False, sort_keys=True),
+            status,
+            error,
+            timestamp,
+        ),
+    )
+    conn.commit()
+    return latest_ai_repricing_advice(slug) or {}
+
+
+def _ai_advice_row(row) -> dict:
+    try:
+        advice = json.loads(row[3] or "{}")
+    except json.JSONDecodeError:
+        advice = {}
+    return {
+        "slug": str(row[0]),
+        "input_hash": str(row[1] or ""),
+        "model": str(row[2] or ""),
+        "advice": advice,
+        "status": str(row[4] or ""),
+        "error": str(row[5] or ""),
+        "created_at": str(row[6] or ""),
+    }
+
+
+def save_counterpart_candidates(slug: str, candidates: list[dict], fetched_at: str | None = None) -> None:
+    conn = connect()
+    timestamp = fetched_at or utc_now().isoformat()
+    conn.execute("DELETE FROM counterpart_candidates WHERE slug = ?", (slug,))
+    conn.executemany(
+        """
+        INSERT INTO counterpart_candidates(
+            slug, source_name, source_kind, source_url, title, language, version,
+            raw_price, currency, converted_price_idr, fx_rate_to_idr, confidence,
+            match_reason, fetched_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                slug,
+                str(candidate.get("source_name") or ""),
+                str(candidate.get("source_kind") or ""),
+                str(candidate.get("source_url") or ""),
+                str(candidate.get("title") or ""),
+                str(candidate.get("language") or ""),
+                str(candidate.get("version") or ""),
+                str(candidate.get("raw_price") or ""),
+                str(candidate.get("currency") or "IDR"),
+                int(candidate["converted_price_idr"]) if candidate.get("converted_price_idr") is not None else None,
+                float(candidate["fx_rate_to_idr"]) if candidate.get("fx_rate_to_idr") is not None else None,
+                float(candidate.get("confidence") or 0),
+                str(candidate.get("match_reason") or ""),
+                timestamp,
+                timestamp,
+            )
+            for candidate in candidates
+        ],
+    )
+    conn.commit()
+
+
+def counterpart_candidates_for_slug(slug: str, limit: int = 20) -> list[dict]:
+    conn = connect()
+    rows = conn.execute(
+        """
+        SELECT source_name, source_kind, source_url, title, language, version,
+               raw_price, currency, converted_price_idr, fx_rate_to_idr,
+               confidence, match_reason, fetched_at
+        FROM counterpart_candidates
+        WHERE slug = ?
+        ORDER BY confidence DESC, converted_price_idr ASC, id ASC
+        LIMIT ?
+        """,
+        (slug, limit),
+    ).fetchall()
+    return [
+        {
+            "source_name": str(row[0] or ""),
+            "source_kind": str(row[1] or ""),
+            "source_url": str(row[2] or ""),
+            "title": str(row[3] or ""),
+            "language": str(row[4] or ""),
+            "version": str(row[5] or ""),
+            "raw_price": str(row[6] or ""),
+            "currency": str(row[7] or "IDR"),
+            "converted_price_idr": int(row[8]) if row[8] is not None else None,
+            "fx_rate_to_idr": float(row[9]) if row[9] is not None else None,
+            "confidence": float(row[10] or 0),
+            "match_reason": str(row[11] or ""),
+            "fetched_at": str(row[12] or ""),
         }
         for row in rows
     ]

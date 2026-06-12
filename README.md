@@ -57,12 +57,16 @@ Use Card Detail for one-card pricing decisions:
   - Max Profit Price = `market_avg_price * 1.05`
 - Edit the card search term.
 - Refresh competitors for that card only.
+- Generate cached AI repricing advice from current pricing evidence.
+- Refresh and review international counterpart candidates with raw currency and converted IDR prices.
 - Update the current Tokopedia listing price from the product page.
 - Review price history and source evidence.
 - Mark an active card sold.
 - Edit sale details for a sold card.
 
 The card search term is important: `search_terms[0]` is the broad competitor query used for Tokopedia, eBay sold listings, and SnkrDunk during both full scheduler runs and single-card refreshes.
+
+AI advice is generated on demand and cached by the exact evidence input. If the evidence has not changed, the app reuses the cached advice instead of calling the AI again. Counterpart refresh uses already collected source observations and deterministic fixed FX rates; it does not fetch live exchange rates.
 
 ### Repricing Queue
 
@@ -160,6 +164,8 @@ Main files and directories:
 
 - `config/products.json` - active/sold product config used by the website and scheduler.
 - `data/price_history.sqlite3` - runs, observations, source fetches, price history, inventory, opportunities, listings, and sales.
+- `ai_repricing_advice` table - cached Card Detail AI advice keyed by card and evidence hash.
+- `counterpart_candidates` table - international counterpart evidence with raw currency, converted IDR price, and match confidence.
 - `data/scheduler.log` - background scheduler output from the website.
 - `data/card-images/` - cached Tokopedia product images.
 - `reports/latest.md` - latest Markdown report.
@@ -225,9 +231,9 @@ Seed a generated config from synced store products:
 python3 -m pokemon_price_scheduler seed-config --pokemon-only
 ```
 
-## Optional AI Summaries
+## Optional AI Features
 
-Scheduler runs can attach MiniMax-generated seller notes when run from CLI:
+The website can generate Card Detail AI Repricing Copilot advice when `MINIMAX_API_KEY` is set. The MiniMax client reads exported environment variables and the nearest project `.env` file, with exported values taking precedence. Scheduler runs can also attach MiniMax-generated seller notes when run from CLI:
 
 ```bash
 export MINIMAX_API_KEY="your-api-key"
@@ -239,6 +245,12 @@ Environment overrides:
 - `MINIMAX_MODEL` - defaults to `MiniMax-M2.7-highspeed`
 - `MINIMAX_BASE_URL` - defaults to `https://api.minimax.io/v1`
 - `MINIMAX_TIMEOUT_SECONDS` - defaults to `30`
+
+Card Detail AI advice is cached by card slug and evidence hash. Use `POST /api/cards/<slug>/ai-repricing-advice?force=1` to intentionally regenerate advice for unchanged evidence, for example after changing the AI prompt or token budget. The response remains non-fatal on missing API key or model failure and the page continues to show raw price evidence.
+
+Counterpart candidates are rebuilt with `POST /api/cards/<slug>/counterparts/refresh` from stored observations for that card. Use this after a scheduler run or single-card competitor refresh when new observations exist.
+
+See `AI_ROADMAP.md` for planned AI features and the rule that AI should explain fetched evidence, not invent prices.
 
 ## Daily Schedule
 

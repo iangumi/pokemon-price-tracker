@@ -1558,6 +1558,47 @@
       }
     }
 
+    async function generateAiAdvice(slug) {
+      var btn = document.getElementById('ai-advice-btn');
+      var original = btn ? btn.textContent : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Generating...';
+      }
+      try {
+        var res = await fetch('/api/cards/' + encodeURIComponent(slug) + '/ai-repricing-advice', { method: 'POST' });
+        var data = await res.json();
+        if (!data.ok) {
+          showToast(data.error || 'AI advice failed', 'error');
+          return;
+        }
+        showToast(data.cached ? 'Loaded cached AI advice' : 'AI advice generated', 'ok');
+        window._app.navigateTo('/cards/' + slug, false);
+      } catch (e) {
+        showToast(e.message || 'AI advice failed', 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = original || 'Generate AI Advice';
+        }
+      }
+    }
+
+    async function refreshCounterparts(slug) {
+      try {
+        var res = await fetch('/api/cards/' + encodeURIComponent(slug) + '/counterparts/refresh', { method: 'POST' });
+        var data = await res.json();
+        if (!data.ok) {
+          showToast(data.error || 'Counterpart refresh failed', 'error');
+          return;
+        }
+        showToast('Counterparts refreshed: ' + (data.counterparts || []).length, 'ok');
+        window._app.navigateTo('/cards/' + slug, false);
+      } catch (e) {
+        showToast(e.message || 'Counterpart refresh failed', 'error');
+      }
+    }
+
     async function syncNewProducts() {
       var res = await fetch('/api/products/sync', { method: 'POST' });
       var data = await res.json();

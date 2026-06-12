@@ -16,12 +16,17 @@ import urllib.request
 from flask import Flask, Response, jsonify, request
 
 from .history import (
+    ai_repricing_advice_for_hash,
+    counterpart_candidates_for_slug,
     get_all_products_with_trend,
     get_observations_for_slug,
+    latest_ai_repricing_advice,
     price_history_for_slug,
     price_trend_for_slug,
     record_price_snapshot,
     repricing_queue,
+    save_ai_repricing_advice,
+    save_counterpart_candidates,
     suggested_prices,
 )
 from .http import fetch_text
@@ -44,6 +49,7 @@ from .inventory import (
 )
 from .models import Product, Source, utc_now
 from .infrastructure.marketplace_sources import product_with_runtime_competitor_sources
+from .infrastructure.counterparts import build_counterpart_candidates
 from .infrastructure.parsing import clean_text, extract_json_objects, walk_json
 from .reports import idr, pct
 from .ui_components import (
@@ -469,8 +475,86 @@ def api_card_detail(slug: str):
         trend_7d=price_trend_for_slug(slug, 7),
         trend_30d=price_trend_for_slug(slug, 30),
         suggested=suggested_prices(market_avg),
+        ai_advice=latest_ai_repricing_advice(slug) or {},
+        counterparts=counterpart_candidates_for_slug(slug),
     )
     return html, 200, {"Content-Type": "text/html"}
+
+
+def _card_evidence(slug: str):
+    from .config import load_config
+    _, products = load_config(CONFIG_PATH)
+    products, _ = _dedupe_products_by_url(products)
+    product = next((p for p in products if p.slug == slug), None)
+    if product is None:
+        return None
+    products_with_data = get_all_products_with_trend()
+    info = next((p for p in products_with_data if p['slug'] == slug), {})
+    observations = get_observations_for_slug(slug)
+    price_history = price_history_for_slug(slug)
+    latest_snapshot = price_history[0] if price_history else {}
+    market_avg = latest_snapshot.get("market_avg_price", info.get("global_average_idr"))
+    return {
+        "product": product,
+        "info": info,
+        "observations": observations,
+        "price_history": price_history,
+        "trend_7d": price_trend_for_slug(slug, 7),
+        "trend_30d": price_trend_for_slug(slug, 30),
+        "suggested": suggested_prices(market_avg),
+        "counterparts": counterpart_candidates_for_slug(slug),
+    }
+
+
+@app.route("/api/cards/<slug>/counterparts")
+def api_card_counterparts(slug: str):
+    return jsonify({"ok": True, "counterparts": counterpart_candidates_for_slug(slug)})
+
+
+@app.route("/api/cards/<slug>/counterparts/refresh", methods=["POST"])
+def api_refresh_counterparts(slug: str):
+    evidence = _card_evidence(slug)
+    if evidence is None:
+        return jsonify({"ok": False, "error": "Card not found"}), 404
+    candidates = build_counterpart_candidates(evidence["product"], evidence["observations"])
+    save_counterpart_candidates(slug, candidates)
+    return jsonify({"ok": True, "counterparts": counterpart_candidates_for_slug(slug)})
+
+
+@app.route("/api/cards/<slug>/ai-repricing-advice", methods=["POST"])
+def api_ai_repricing_advice(slug: str):
+    evidence = _card_evidence(slug)
+    if evidence is None:
+        return jsonify({"ok": False, "error": "Card not found"}), 404
+    from .ai import MiniMaxClient, build_repricing_advice_payload, generate_repricing_advice, repricing_advice_input_hash
+
+    payload = build_repricing_advice_payload(**evidence)
+    input_hash = repricing_advice_input_hash(payload)
+    body = request.get_json(silent=True) or {}
+    force = request.args.get("force", "").lower() in {"1", "true", "yes"} or bool(body.get("force"))
+    cached = None if force else ai_repricing_advice_for_hash(slug, input_hash)
+    if cached:
+        return jsonify({"ok": True, "cached": True, "record": cached})
+    client = MiniMaxClient()
+    try:
+        advice = generate_repricing_advice(payload, client)
+    except RuntimeError as exc:
+        record = save_ai_repricing_advice(
+            slug=slug,
+            input_hash=input_hash,
+            model=client.model,
+            status="error",
+            error=str(exc),
+        )
+        return jsonify({"ok": False, "error": str(exc), "record": record}), 400
+    record = save_ai_repricing_advice(
+        slug=slug,
+        input_hash=input_hash,
+        model=client.model,
+        advice=advice,
+        status="ok",
+    )
+    return jsonify({"ok": True, "cached": False, "record": record})
 
 
 @app.route("/api/soldcards")

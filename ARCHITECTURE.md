@@ -43,8 +43,9 @@ pokemon_price_scheduler/
 │   ├── scrapers.py             # MarketplaceScraper + extract_tokopedia_search_items(),
 │   │                            #   extract_ebay_items(), extract_snkrdunk_api()
 │   ├── history.py              # SQLite persistence (thread-local connections via threading.local)
+│   ├── counterparts.py         # Counterpart evidence normalization and fixed FX conversion
 │   ├── reports.py              # ReportEngine + 6 concrete Report subclasses
-│   └── ai.py                  # MiniMaxClient, attach_ai_summaries()
+│   └── ai.py                  # MiniMaxClient, summaries, Card Detail repricing advice
 │
 ├── v2/                           # Newer pipeline trace storage and run persistence
 │   └── storage.py              # TraceStore, schema migration, run result persistence
@@ -92,6 +93,8 @@ SQLite stores both run trace data and daily workflow data:
 - `source_fetches` - raw fetch status and source-level diagnostics
 - `analysis_decisions` - filtering and scoring decisions
 - `price_history` - one price snapshot per card after each scheduler run
+- `ai_repricing_advice` - cached Card Detail AI advice keyed by input evidence hash
+- `counterpart_candidates` - international counterpart evidence with raw currency and converted IDR prices
 - `cards` - stable parsed card identity records for inventory/sales
 - `listings` - Tokopedia listing lifecycles linked to cards
 - `sales` - completed sale records with sold date, sold price, bought price, and net income
@@ -107,6 +110,12 @@ SQLite stores both run trace data and daily workflow data:
 `infrastructure/marketplace_sources.py` owns built-in marketplace search URL construction. For every scheduler run and card-detail refresh, Tokopedia, eBay sold, and SnkrDunk competitor sources are rebuilt from `Product.search_terms[0]`. The card detail `PUT /api/cards/<slug>/search-term` endpoint updates that value in `config/products.json`, making it the user-controlled query for all three competitor marketplaces.
 
 Stored `sources` entries with kinds `tokopedia_find`, `ebay_sold`, and `snkrdunk_search` are treated as legacy/stale URL snapshots and are replaced at runtime. Custom or unknown source kinds remain attached to the product and continue to be scraped after the generated competitor sources. If `search_terms` is empty, source generation falls back to parsed card identity and then the product title.
+
+### AI Repricing Copilot and Counterparts
+
+Card Detail exposes an on-demand AI Repricing Copilot. `infrastructure/ai.py` builds a compact evidence payload from local prices, trends, observations, suggested prices, and counterpart candidates, then calls the MiniMax-compatible client only when the cached input hash is missing. `POST /api/cards/<slug>/ai-repricing-advice?force=1` intentionally bypasses that cache for unchanged evidence. Advice failures are saved as non-fatal error records so the page can keep showing raw evidence.
+
+`infrastructure/counterparts.py` owns deterministic counterpart candidate preparation and fixed currency conversion. V1 seeds counterpart candidates from current source observations, infers USD/JPY/IDR from source/raw price, stores converted IDR values with the FX rate used, and records a deterministic match confidence/reason. The current FX rates are static application constants, not live market rates. Future source connectors such as TCGplayer, PriceCharting, Yuyutei, and Mercari should write into the same `counterpart_candidates` shape.
 
 ### Inventory and Sales Lifecycle
 
@@ -233,6 +242,9 @@ Main output of a run. Fields: `product`, `run_at`, `source_results[]`, `market_m
 | `/api/products/sync` | POST | Sync new products from Tokopedia store page |
 | `/api/cards/add` | POST | Add new card by URL |
 | `/api/cards/<slug>/search-term` | PUT | Update search keyword |
+| `/api/cards/<slug>/ai-repricing-advice` | POST | Generate or return cached AI repricing advice; `?force=1` bypasses the cache for unchanged evidence |
+| `/api/cards/<slug>/counterparts` | GET | Return stored counterpart candidates |
+| `/api/cards/<slug>/counterparts/refresh` | POST | Rebuild counterpart candidates from current evidence |
 | `/run` | POST | Trigger full scheduler run (subprocess) |
 | `/run/status` | GET | SSE stream: scheduler progress events |
 | `/run/<slug>` | POST | Background refresh for single card |
@@ -284,6 +296,7 @@ Single HTML file with:
 - **Modals**: Add Card modal (URL + keyword inputs), Add Opportunity modal, Convert Opportunity modal
 - **Sale modals**: Mark Sold/Edit Sale modal (sold date, sold price, bought price, net income)
 - **Toast system**: `showToast(message, type)` with success/error/info variants
+- **AI/Card Detail operations**: `generateAiAdvice(slug)` posts to the cached AI advice endpoint; `refreshCounterparts(slug)` rebuilds counterpart candidates from stored observations
 - **Opportunity operations**: `submitOpportunity()` creates buy-list rows; `submitConvertOpportunity()` converts them into inventory and optional Store Listings
 - **Scheduler operations**: `refreshCard()`, `syncNewProducts()`, `addCard()`, `updateSearchTerm()`, `revertSold()`, `updatePrice()`, `submitMarkSold()`
 
@@ -330,7 +343,9 @@ Reads `store_products.json`, runs `parse_card_identity()` on each title to gener
 ```
 
 ### Environment Variables
-- `MINIMAX_API_KEY` — MiniMax API key for AI summaries
+`MiniMaxClient` reads exported environment variables first, then fills missing values from the nearest `.env` file found by walking upward from the current working directory.
+
+- `MINIMAX_API_KEY` — MiniMax API key for AI summaries and Card Detail AI repricing advice
 - `MINIMAX_MODEL` — defaults to `MiniMax-M2.7-highspeed`
 - `MINIMAX_BASE_URL` — defaults to `https://api.minimax.io/v1`
 - `MINIMAX_TIMEOUT_SECONDS` — defaults to `30`

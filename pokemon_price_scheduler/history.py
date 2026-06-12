@@ -14,6 +14,11 @@ from .infrastructure.history import (
     repricing_queue,
     suggested_prices,
     recommended_action,
+    latest_ai_repricing_advice,
+    ai_repricing_advice_for_hash,
+    save_ai_repricing_advice,
+    save_counterpart_candidates,
+    counterpart_candidates_for_slug,
 )
 
 __all__ = [
@@ -30,4 +35,9 @@ __all__ = [
     "repricing_queue",
     "suggested_prices",
     "recommended_action",
+    "latest_ai_repricing_advice",
+    "ai_repricing_advice_for_hash",
+    "save_ai_repricing_advice",
+    "save_counterpart_candidates",
+    "counterpart_candidates_for_slug",
 ]

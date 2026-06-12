@@ -415,9 +415,13 @@ def card_detail_fragment(
     trend_7d: float | None = None,
     trend_30d: float | None = None,
     suggested: dict[str, int | None] | None = None,
+    ai_advice: dict[str, Any] | None = None,
+    counterparts: list[dict[str, Any]] | None = None,
 ) -> str:
     price_history = price_history or []
     suggested = suggested or {"quick_sale": None, "normal": None, "max_profit": None}
+    ai_advice = ai_advice or {}
+    counterparts = counterparts or []
     latest_snapshot = price_history[0] if price_history else {}
     latest_tokopedia_price = first_positive_int(latest_snapshot.get("tokopedia_price"), product.own_price_idr)
     latest_market_avg = latest_snapshot.get("market_avg_price", info.get("global_average_idr"))
@@ -477,11 +481,79 @@ def card_detail_fragment(
         toolbar(*actions)
         + search_editor
         + metrics
+        + ai_repricing_panel(product.slug, ai_advice)
+        + counterpart_panel(product.slug, counterparts)
         + identity_panel(product, image_url=image_url)
         + chart
         + suggested_price_panel(suggested)
         + price_history_panel(price_history)
         + source_evidence_panel(observations)
+    )
+
+
+def ai_repricing_panel(slug: str, record: dict[str, Any]) -> str:
+    status = record.get("status") or ""
+    advice = record.get("advice") or {}
+    if status == "ok" and advice:
+        risks = advice.get("risks") or []
+        next_steps = advice.get("next_steps") or []
+        body = f"""
+        <div class="ai-advice">
+          <p><strong>{h(advice.get('headline', 'AI repricing advice'))}</strong></p>
+          <dl class="identity-list">
+            <dt>Action</dt><dd>{h(advice.get('recommended_action', '-'))}</dd>
+            <dt>Suggested price</dt><dd>{format_money_or_missing(advice.get('recommended_price_idr'))}</dd>
+            <dt>Confidence</dt><dd>{badge(str(advice.get('confidence', 'low')).title(), {'high': 'success', 'medium': 'warning', 'low': 'muted'}.get(str(advice.get('confidence', 'low')).lower(), 'neutral'))}</dd>
+            <dt>Generated</dt><dd>{h(str(record.get('created_at', '-'))[:19].replace('T', ' '))}</dd>
+          </dl>
+          <p>{h(advice.get('rationale', ''))}</p>
+          {bullet_list('Risks', risks)}
+          {bullet_list('Next steps', next_steps)}
+        </div>"""
+    elif status == "error":
+        body = empty_state("AI advice unavailable", record.get("error") or "The AI request failed.")
+    else:
+        body = empty_state("No AI advice yet", "Generate advice after competitor prices have been refreshed.")
+    return panel(
+        "AI Repricing Copilot",
+        body + toolbar(button("Generate AI Advice", onclick=f"generateAiAdvice('{h(slug)}')", variant="primary", element_id="ai-advice-btn")),
+        subtitle="On-demand advice using local pricing evidence and counterpart candidates.",
+    )
+
+
+def bullet_list(title: str, items: list[Any]) -> str:
+    if not items:
+        return ""
+    return f"<h3>{h(title)}</h3><ul>" + "".join(f"<li>{h(item)}</li>" for item in items) + "</ul>"
+
+
+def counterpart_panel(slug: str, rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        body = empty_state(
+            "No counterpart candidates yet",
+            "Refresh counterparts after competitor evidence exists for this card.",
+        )
+    else:
+        body = data_table(
+            ["title", "language", "version", "source_name", "raw_price", "converted_price_idr", "confidence", "match_reason"],
+            rows,
+            table_id=f"counterparts-{slug}",
+            class_name="data-table--compact",
+            columns=[
+                {"field": "title", "headerName": "Counterpart", "flex": 3, "minWidth": 320, "wrapText": True, "autoHeight": True},
+                {"field": "language", "headerName": "Language", "width": 130},
+                {"field": "version", "headerName": "Version", "width": 120},
+                {"field": "source_name", "headerName": "Source", "width": 160},
+                {"field": "raw_price", "headerName": "Raw Price", "width": 140},
+                {"field": "converted_price_idr", "headerName": "IDR", "cellRenderer": "moneyValue", "width": 150, "type": "numericColumn"},
+                {"field": "confidence", "headerName": "Confidence", "cellRenderer": "percentValue", "width": 140, "type": "numericColumn"},
+                {"field": "match_reason", "headerName": "Reason", "flex": 2, "minWidth": 220},
+            ],
+        )
+    return panel(
+        "International Counterparts",
+        body + toolbar(button("Refresh Counterparts", onclick=f"refreshCounterparts('{h(slug)}')", variant="secondary")),
+        subtitle="English/Japanese/global evidence with deterministic currency conversion to IDR.",
     )
 
 

@@ -161,6 +161,8 @@ class WebUiTests(unittest.TestCase):
             "Suggested Tokopedia Price",
             "Price History",
             "Card Identity",
+            "AI Repricing Copilot",
+            "International Counterparts",
             "Source Evidence",
             "Mark Sold",
         )
@@ -171,6 +173,47 @@ class WebUiTests(unittest.TestCase):
         self.assertIn("identity-layout", html_text)
         self.assertIn("identity-picture-block", html_text)
         self.assertIn("identity-detail-block", html_text)
+
+    def test_ai_repricing_advice_endpoint_handles_missing_api_key(self):
+        history_db = Path(self.tmp.name) / "ai-history.sqlite3"
+        with patch.object(history_store, "DB_PATH", history_db), patch.dict("os.environ", {"MINIMAX_API_KEY": ""}, clear=False):
+            response = self.client.post(f"/api/cards/{self.active.slug}/ai-repricing-advice")
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json()
+        self.assertFalse(payload["ok"])
+        self.assertIn("MINIMAX_API_KEY", payload["error"])
+
+    def test_ai_repricing_advice_endpoint_can_force_regenerate_cached_advice(self):
+        history_db = Path(self.tmp.name) / "ai-force-history.sqlite3"
+        generated = []
+
+        def fake_generate(payload, client):
+            generated.append(payload)
+            return {
+                "headline": f"Advice {len(generated)}",
+                "recommended_action": "Hold price",
+                "recommended_price_idr": None,
+                "confidence": "medium",
+                "rationale": "Fixture advice.",
+                "risks": [],
+                "next_steps": [],
+            }
+
+        with (
+            patch.object(history_store, "DB_PATH", history_db),
+            patch("pokemon_price_scheduler.ai.generate_repricing_advice", side_effect=fake_generate),
+        ):
+            first = self.client.post(f"/api/cards/{self.active.slug}/ai-repricing-advice").get_json()
+            cached = self.client.post(f"/api/cards/{self.active.slug}/ai-repricing-advice").get_json()
+            forced = self.client.post(f"/api/cards/{self.active.slug}/ai-repricing-advice?force=1").get_json()
+
+        self.assertFalse(first["cached"])
+        self.assertTrue(cached["cached"])
+        self.assertFalse(forced["cached"])
+        self.assertEqual(cached["record"]["advice"]["headline"], "Advice 1")
+        self.assertEqual(forced["record"]["advice"]["headline"], "Advice 2")
+        self.assertEqual(len(generated), 2)
 
     def test_update_search_term_controls_manual_refresh_sources(self):
         response = self.client.put(
