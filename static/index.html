@@ -783,6 +783,50 @@
     }
     .modal label { display: block; margin-bottom: 4px; color: var(--ink-soft); font-family: var(--font-display); font-size: 10px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
     .modal input { margin-bottom: var(--sp-2); }
+    .marketplace-fee-preview {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin: 0 0 var(--sp-2);
+      padding: 10px;
+      border: 3px solid var(--ink);
+      background: rgba(199, 216, 138, 0.62);
+      font-family: var(--font-display);
+    }
+    .marketplace-fee-preview div {
+      min-width: 0;
+      padding: 8px;
+      border: 2px solid var(--ink);
+      background: #eee9c7;
+    }
+    .marketplace-fee-preview span {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--ink-soft);
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .marketplace-fee-preview strong {
+      display: block;
+      color: var(--ink);
+      font-size: 17px;
+      font-weight: 900;
+      overflow-wrap: anywhere;
+    }
+    .marketplace-fee-preview p {
+      grid-column: 1 / -1;
+      margin: 0;
+      color: var(--ink-soft);
+      font-size: 10px;
+      font-weight: 900;
+      line-height: 1.4;
+      text-transform: uppercase;
+    }
+    .marketplace-fee-preview--warning div { background: rgba(141, 101, 18, 0.18); }
+    .marketplace-fee-preview--warning strong,
+    .marketplace-fee-preview--warning p { color: var(--red); }
     .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
     .toast {
       position: fixed;
@@ -928,6 +972,27 @@
       var number = Number(value);
       if (!Number.isFinite(number)) return '-';
       return (number > 0 ? '+' : '') + number.toFixed(1) + '%';
+    }
+
+    function parseMoneyInput(value) {
+      var cleaned = String(value == null ? '' : value).replace(/[^\d-]/g, '');
+      if (!cleaned || cleaned === '-') return null;
+      var number = Number(cleaned);
+      return Number.isFinite(number) ? number : null;
+    }
+
+    function calculateMarketplaceFee(soldPrice, netIncome) {
+      if (soldPrice == null || soldPrice <= 0 || netIncome == null) return null;
+      var feeAmount = soldPrice - netIncome;
+      return {
+        feeAmount: feeAmount,
+        feePercent: (feeAmount / soldPrice) * 100
+      };
+    }
+
+    function formatMarketplaceFeePercent(value) {
+      if (value == null || !Number.isFinite(value)) return '-';
+      return value.toFixed(1).replace(/\.0$/, '') + '%';
     }
 
     function badgeHtml(label, tone) {
@@ -1453,6 +1518,7 @@
       document.getElementById('sold-price-input').value = '';
       document.getElementById('bought-price-input').value = '';
       document.getElementById('net-income-input').value = '';
+      updateMarketplaceFeePreview();
       document.getElementById('mark-sold-modal').classList.add('open');
     }
 
@@ -1465,11 +1531,36 @@
       document.getElementById('sold-price-input').value = soldPrice || '';
       document.getElementById('bought-price-input').value = boughtPrice || '';
       document.getElementById('net-income-input').value = netIncome || '';
+      updateMarketplaceFeePreview();
       document.getElementById('mark-sold-modal').classList.add('open');
     }
 
     function closeMarkSoldModal() {
       document.getElementById('mark-sold-modal').classList.remove('open');
+    }
+
+    function updateMarketplaceFeePreview() {
+      var preview = document.getElementById('marketplace-fee-preview');
+      var amount = document.getElementById('marketplace-fee-amount');
+      var percent = document.getElementById('marketplace-fee-percent');
+      var note = document.getElementById('marketplace-fee-note');
+      if (!preview || !amount || !percent || !note) return;
+      var soldPrice = parseMoneyInput(document.getElementById('sold-price-input').value);
+      var netIncome = parseMoneyInput(document.getElementById('net-income-input').value);
+      var fee = calculateMarketplaceFee(soldPrice, netIncome);
+      if (!fee) {
+        amount.textContent = '-';
+        percent.textContent = '-';
+        note.textContent = 'Enter sold price and settlement';
+        preview.classList.remove('marketplace-fee-preview--warning');
+        return;
+      }
+      amount.textContent = idr(fee.feeAmount);
+      percent.textContent = formatMarketplaceFeePercent(fee.feePercent);
+      note.textContent = fee.feeAmount < 0
+        ? 'Settlement is higher than sold price. Check the sale values.'
+        : 'Fee = sold price minus marketplace settlement';
+      preview.classList.toggle('marketplace-fee-preview--warning', fee.feeAmount < 0);
     }
 
     async function submitMarkSold() {
@@ -1697,11 +1788,22 @@
       <label>Sold Date</label>
       <input id="sold-date-input" type="date">
       <label>Sold Price</label>
-      <input id="sold-price-input" type="text" inputmode="numeric" placeholder="2500000">
+      <input id="sold-price-input" type="text" inputmode="numeric" placeholder="2500000" oninput="updateMarketplaceFeePreview()">
       <label>Bought Price</label>
       <input id="bought-price-input" type="text" inputmode="numeric" placeholder="1500000">
-      <label>Net Income</label>
-      <input id="net-income-input" type="text" inputmode="numeric" placeholder="2200000">
+      <label>Net Income / Settlement</label>
+      <input id="net-income-input" type="text" inputmode="numeric" placeholder="2200000" oninput="updateMarketplaceFeePreview()">
+      <div id="marketplace-fee-preview" class="marketplace-fee-preview" aria-live="polite">
+        <div>
+          <span>Marketplace fee</span>
+          <strong id="marketplace-fee-percent">-</strong>
+        </div>
+        <div>
+          <span>Fee amount</span>
+          <strong id="marketplace-fee-amount">-</strong>
+        </div>
+        <p id="marketplace-fee-note">Enter sold price and settlement</p>
+      </div>
       <div class="modal-actions">
         <button class="btn" onclick="closeMarkSoldModal()">Cancel</button>
         <button id="mark-sold-submit" class="btn" onclick="submitMarkSold()">Mark Sold</button>

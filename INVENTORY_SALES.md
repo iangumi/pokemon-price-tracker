@@ -143,6 +143,13 @@ The sale modal must collect:
 - Bought price
 - Net income
 
+The modal also previews marketplace fee:
+
+- `marketplace_fee_idr = sold_price_idr - net_income_idr`
+- `marketplace_fee_percent = marketplace_fee_idr / sold_price_idr * 100`
+
+For this v1 preview, `net_income_idr` is treated as the marketplace settlement/payout value. The fee amount and percent are not stored in SQLite.
+
 Do not rename bought price to bought date. Bought date is not part of the current workflow.
 
 ## Income Analysis Notes
@@ -152,6 +159,7 @@ Current income analytics are intentionally simple:
 - Net income is manual.
 - Monthly/weekly summaries use `sales.sold_at`.
 - Totals use `sales.net_income_idr`.
+- Marketplace fee amount/percent is a sale-modal preview only and is recalculated from the current inputs.
 
 Future marketplace-fee analysis should build on the captured gross sold price:
 

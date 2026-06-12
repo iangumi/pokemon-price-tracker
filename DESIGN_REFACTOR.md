@@ -83,7 +83,7 @@ Source Health intentionally lives in Reports, not Dashboard. Dashboard should st
 - Counterpart rows must show raw price/currency, converted IDR, confidence, and match reason.
 - Active card details include `Mark Sold`.
 - Sold card details include `Edit Sale`.
-- The shared sale modal must collect sold date, sold price, bought price, and net income. Do not relabel bought price as bought date.
+- The shared sale modal must collect sold date, sold price, bought price, and net income. It also previews marketplace fee amount/percent from sold price minus net income/settlement. Do not relabel bought price as bought date.
 
 ## Sold Cards and Income Rules
 
@@ -92,6 +92,7 @@ Source Health intentionally lives in Reports, not Dashboard. Dashboard should st
 - `sold_price_idr` is the gross sale amount before marketplace deductions.
 - `bought_at_price_idr` is the acquisition cost.
 - `net_income_idr` is manual for now and should not be inferred until marketplace-fee rules are explicitly added.
+- The current marketplace fee calculation is a modal-only preview. It treats `net_income_idr` as settlement/payout for v1 and does not persist fee fields.
 - Future marketplace fee analysis should use `sold_price_idr` as the base, then derive fee amount, payout, profit, margin, and ROI without deleting the manually entered net income.
 - Existing sold cards must remain editable because sales data can be backfilled after the item was marked sold by sync.
 

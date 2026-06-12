@@ -582,6 +582,21 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(summary["sold_count"], 1)
         self.assertEqual(summary["net_income_idr"], 650000)
 
+    def test_sale_modal_contains_marketplace_fee_preview(self):
+        html_text = Path("static/index.html").read_text(encoding="utf-8")
+
+        self.assertIn("marketplace-fee-preview", html_text)
+        self.assertIn("Marketplace fee", html_text)
+        self.assertIn("Enter sold price and settlement", html_text)
+
+    def test_sale_modal_includes_reusable_marketplace_fee_helpers(self):
+        html_text = Path("static/index.html").read_text(encoding="utf-8")
+
+        self.assertIn("function calculateMarketplaceFee", html_text)
+        self.assertIn("function updateMarketplaceFeePreview", html_text)
+        self.assertIn("calculateMarketplaceFee(soldPrice, netIncome)", html_text)
+        self.assertIn("oninput=\"updateMarketplaceFeePreview()\"", html_text)
+
     def test_mark_sold_requires_bought_price_and_net_income(self):
         response = self.client.post(
             f"/api/cards/{self.active.slug}/mark-sold",

@@ -122,6 +122,7 @@ Use Sold Cards for sales and income tracking:
 
 - Review completed listing lifecycles.
 - Record sold date, sold price, bought price, and net income.
+- Preview marketplace fee amount and percentage in the sale modal from sold price minus net income/settlement.
 - Edit existing sale details.
 - Restock a sold card with `Mark Active`.
 
