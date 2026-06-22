@@ -24,6 +24,7 @@ config/products.json
 
 # Agent / editor config — user-specific
 .codegraph/
+.superpowers/
 .agents/
 .claude/
 .cursorrules

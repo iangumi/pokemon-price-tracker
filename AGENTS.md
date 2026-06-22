@@ -60,7 +60,8 @@ Before final response on a major change:
 - Update relevant docs, or explicitly state why no docs were needed.
 - Run targeted tests or the full test suite when code changed.
 - Check `git status --short`.
-- Mention modified source/docs and verification results in the final answer.
+- Mention what changed, verification results, and the current file state in the final answer.
+- Group changed files by feature area or purpose, and explain what each group does for the current feature. Include staged/unstaged/untracked/ignored state when relevant so the user can tell what is ready to commit and what is local-only.
 
 When committing, split feature implementation and documentation into separate commits when that makes history easier to review.
 
