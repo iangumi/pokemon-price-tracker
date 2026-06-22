@@ -303,6 +303,7 @@ def sync_products(products: list[Product], path: Path = DEFAULT_DB_PATH) -> None
                 _ensure_sale(conn, listing_id, product, now)
             else:
                 _ensure_active_listing(conn, product, now)
+        _delete_stale_active_listings(conn, products)
         conn.commit()
 
 
@@ -351,6 +352,44 @@ def create_restock_listing(product: Product, path: Path = DEFAULT_DB_PATH) -> No
         if _find_active_listing_id(conn, product) is None:
             _create_listing(conn, product, "active", now)
         conn.commit()
+
+
+def restore_active_listing(product: Product, path: Path = DEFAULT_DB_PATH) -> bool:
+    with closing(connect(path)) as conn:
+        now = utc_now().isoformat()
+        _upsert_card(conn, product, now)
+        listing_id = _find_sold_listing_id(conn, product)
+        if listing_id is None:
+            return False
+        active_listing_id = _find_active_listing_id(conn, product)
+        conn.execute("DELETE FROM sales WHERE listing_id = ?", (listing_id,))
+        if active_listing_id is not None:
+            conn.execute("DELETE FROM listings WHERE id = ?", (listing_id,))
+            conn.commit()
+            return True
+        conn.execute(
+            """
+            UPDATE listings
+            SET status = 'active',
+                sold_at = '',
+                title = ?,
+                tokopedia_url = ?,
+                normalized_url = ?,
+                current_price_idr = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                product.title,
+                product.tokopedia_url,
+                _normalized_url(product.tokopedia_url),
+                product.own_price_idr,
+                now,
+                listing_id,
+            ),
+        )
+        conn.commit()
+        return True
 
 
 def sold_card_rows(path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
@@ -498,6 +537,28 @@ def _find_sold_listing_id(conn: sqlite3.Connection, product: Product) -> int | N
         (product.slug,),
     ).fetchone()
     return int(row[0]) if row else None
+
+
+def _delete_stale_active_listings(conn: sqlite3.Connection, products: list[Product]) -> None:
+    active_slugs = {product.slug for product in products if product.status != "sold"}
+    active_urls = {
+        normalized
+        for product in products
+        if product.status != "sold"
+        for normalized in [_normalized_url(product.tokopedia_url)]
+        if normalized
+    }
+    rows = conn.execute(
+        "SELECT id, slug, normalized_url FROM listings WHERE status = 'active'"
+    ).fetchall()
+    stale_ids = [
+        int(row[0])
+        for row in rows
+        if str(row[1]) not in active_slugs and (not row[2] or str(row[2]) not in active_urls)
+    ]
+    if not stale_ids:
+        return
+    conn.executemany("DELETE FROM listings WHERE id = ?", [(listing_id,) for listing_id in stale_ids])
 
 
 def _ensure_active_listing(conn: sqlite3.Connection, product: Product, now: str) -> int:

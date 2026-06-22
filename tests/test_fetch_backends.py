@@ -11,7 +11,8 @@ from pokemon_price_scheduler.infrastructure.http import (
     resolve_fetch_backend,
     select_fetch_backend,
 )
-from pokemon_price_scheduler.infrastructure.scrapers import snkrdunk_search_url
+from pokemon_price_scheduler.infrastructure.scrapers import extract_snkrdunk_api, snkrdunk_search_url
+from pokemon_price_scheduler.models import Source
 
 
 class FetchBackendTests(unittest.TestCase):
@@ -41,6 +42,25 @@ class FetchBackendTests(unittest.TestCase):
         self.assertTrue(url.startswith("https://snkrdunk.com/v3/search?"))
         self.assertIn("func=all", url)
         self.assertIn("keyword=Mew+Ex+SAR+%28+Bubble+Mew+%29+SAR+sv4a", url)
+
+    def test_snkrdunk_api_prices_are_converted_from_jpy_to_idr(self):
+        source = Source("snkrdunk search", "snkrdunk_search", "https://snkrdunk.com/v3/search")
+        payload = {
+            "products": [
+                {
+                    "title": "Mew Ex SAR 347/190 sv4a Japanese",
+                    "salePrice": 8000,
+                    "link": "/products/123",
+                }
+            ]
+        }
+
+        observations = extract_snkrdunk_api(source, json.dumps(payload))
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].price_idr, 880000)
+        self.assertEqual(observations[0].currency, "JPY")
+        self.assertEqual(observations[0].raw_price, "8000")
 
     def test_migrate_snkrdunk_urls_rewrites_legacy_endpoint(self):
         with tempfile.TemporaryDirectory() as tmp:

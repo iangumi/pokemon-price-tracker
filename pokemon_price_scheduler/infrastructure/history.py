@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from ..domain.models import ProductAnalysis, utc_now
+from .fx import default_currency_for_source
 
 DB_PATH = Path("data/price_history.sqlite3")
 
@@ -67,6 +68,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             title TEXT,
             price_idr INTEGER NOT NULL,
             raw_price TEXT,
+            currency TEXT DEFAULT 'IDR',
             is_legit INTEGER NOT NULL,
             relevance_score REAL DEFAULT 0
         );
@@ -122,6 +124,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         ("product_results", "alert_level", "TEXT DEFAULT 'none'"),
         ("product_results", "ai_summary", "TEXT DEFAULT ''"),
         ("product_results", "alert_label", "TEXT DEFAULT ''"),
+        ("observations", "currency", "TEXT DEFAULT 'IDR'"),
         ("observations", "relevance_score", "REAL DEFAULT 0"),
     }
     for table, column, column_type in _ALLOWED_MIGRATIONS:
@@ -173,8 +176,8 @@ def save_run(analyses: list[ProductAnalysis]) -> int:
                     """
                     INSERT INTO observations(
                         product_result_id, source_name, source_kind, url, title,
-                        price_idr, raw_price, is_legit, relevance_score
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        price_idr, raw_price, currency, is_legit, relevance_score
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         result_id,
@@ -184,6 +187,7 @@ def save_run(analyses: list[ProductAnalysis]) -> int:
                         obs.title,
                         obs.price_idr,
                         obs.raw_price,
+                        obs.currency,
                         int(obs.is_legit),
                         obs.relevance_score,
                     ),
@@ -335,7 +339,7 @@ def get_observations_for_slug(slug: str) -> list[dict]:
     rows = conn.execute(
         """
         SELECT o.source_name, o.source_kind, o.url, o.title, o.price_idr,
-               o.is_legit, o.raw_price, o.relevance_score
+               o.is_legit, o.raw_price, o.relevance_score, o.currency
         FROM observations o
         JOIN product_results pr ON pr.id = o.product_result_id
         WHERE pr.slug = ?
@@ -354,6 +358,7 @@ def get_observations_for_slug(slug: str) -> list[dict]:
             "is_legit": bool(row[5]),
             "raw_price": str(row[6] or ""),
             "relevance_score": float(row[7] or 0),
+            "currency": default_currency_for_source(str(row[1] or ""), str(row[8] or "")),
         }
         for row in rows
     ]

@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import quote_plus
 
 from ..domain.models import PriceObservation, Source, SourceResult
+from .fx import convert_to_idr
 from .http import fetch_text
 from .parsing import (
     clean_text,
@@ -326,10 +327,13 @@ def extract_snkrdunk_api(source: Source, raw_text: str) -> list[PriceObservation
                         price = int(price_val) if price_val else 0
                     if price is None or price == 0:
                         continue
+                    converted_price, _ = convert_to_idr(price, "JPY")
+                    if converted_price is None:
+                        continue
                     link = product.get("link") or product.get("url") or ""
                     if link and not link.startswith("http"):
                         link = "https://snkrdunk.com" + link
-                    key = (title, price)
+                    key = (title, converted_price)
                     if key in seen:
                         continue
                     seen.add(key)
@@ -338,7 +342,7 @@ def extract_snkrdunk_api(source: Source, raw_text: str) -> list[PriceObservation
                             source_name=source.name,
                             source_kind=source.kind,
                             url=link or source.url,
-                            price_idr=price,
+                            price_idr=converted_price,
                             title=title,
                             raw_price=str(price_val),
                             currency="JPY",

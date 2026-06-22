@@ -169,8 +169,8 @@ class TraceStore:
                             """
                             INSERT INTO observations(
                                 product_result_id, source_name, source_kind, url,
-                                title, price_idr, raw_price, is_legit, relevance_score
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                title, price_idr, raw_price, currency, is_legit, relevance_score
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (
                                 result_id,
@@ -180,6 +180,7 @@ class TraceStore:
                                 obs.title,
                                 obs.price_idr,
                                 obs.raw_price,
+                                obs.currency,
                                 int(obs.is_legit),
                                 obs.relevance_score,
                             ),
@@ -310,6 +311,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             title TEXT,
             price_idr INTEGER NOT NULL,
             raw_price TEXT,
+            currency TEXT DEFAULT 'IDR',
             is_legit INTEGER NOT NULL,
             relevance_score REAL DEFAULT 0
         );
@@ -366,6 +368,7 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
             "alert_label": "TEXT DEFAULT ''",
         },
         "observations": {
+            "currency": "TEXT DEFAULT 'IDR'",
             "relevance_score": "REAL DEFAULT 0",
         },
         "source_fetches": {

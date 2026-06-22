@@ -24,6 +24,7 @@ from .history import (
     price_history_for_slug,
     price_trend_for_slug,
     record_price_snapshot,
+    recommended_action,
     repricing_queue,
     save_ai_repricing_advice,
     save_counterpart_candidates,
@@ -43,6 +44,7 @@ from .inventory import (
     list_opportunities,
     mark_product_sold,
     parse_idr,
+    restore_active_listing,
     sold_card_rows,
     sync_products as sync_inventory_products,
     update_sale_details,
@@ -88,6 +90,31 @@ def _inventory_db_path() -> Path:
     if CONFIG_PATH.parent == BASE_DIR / "config":
         return BASE_DIR / "data" / "price_history.sqlite3"
     return CONFIG_PATH.parent / "inventory.sqlite3"
+
+
+def _repricing_rows_for_active_products(products: list[Product]) -> list[dict]:
+    products_with_data = get_all_products_with_trend()
+    data_by_slug = {row["slug"]: row for row in products_with_data}
+    rows = []
+    for product in products:
+        info = data_by_slug.get(product.slug, {})
+        market_avg = info.get("global_average_idr")
+        prices = suggested_prices(market_avg)
+        rows.append(
+            {
+                "title": product.title,
+                "slug": product.slug,
+                "tokopedia_price": product.own_price_idr,
+                "market_avg_price": market_avg,
+                "delta_percent": info.get("price_delta_percent"),
+                "suggested_quick_sale": prices["quick_sale"],
+                "suggested_normal": prices["normal"],
+                "suggested_max_profit": prices["max_profit"],
+                "recommended_action": recommended_action(product.own_price_idr, market_avg),
+            }
+        )
+    action_order = {"Lower price": 0, "Raise price": 1, "Missing market data": 2, "Aligned": 3}
+    return sorted(rows, key=lambda row: (action_order.get(row["recommended_action"], 9), row["title"]))
 
 
 def _sync_inventory(settings: dict, products: list[Product]) -> None:
@@ -412,7 +439,6 @@ def api_dashboard():
     store = TraceStore(BASE_DIR / "data" / "price_history.sqlite3")
     latest_run_id = store.latest_run_id()
     latest_run = store.inspect_run(latest_run_id) if latest_run_id is not None else None
-    active_slugs = {p.slug for p in active}
     html = dashboard_fragment(
         total_listings=total_listings,
         portfolio_value=portfolio_value,
@@ -420,7 +446,7 @@ def api_dashboard():
         alerts_count=alerts_count,
         latest_run=latest_run,
         active_cards=active_card_rows,
-        repricing_rows=repricing_queue(active_slugs),
+        repricing_rows=_repricing_rows_for_active_products(active),
     )
     return html, 200, {"Content-Type": "text/html"}
 
@@ -824,8 +850,8 @@ def api_repricing():
     """Return repricing queue table as HTML fragment."""
     from .config import load_config
     _, products = load_config(CONFIG_PATH)
-    active_slugs = {p.slug for p in _active_tokopedia_products(products)}
-    return repricing_queue_fragment(repricing_queue(active_slugs)), 200, {"Content-Type": "text/html"}
+    active = _active_tokopedia_products(products)
+    return repricing_queue_fragment(_repricing_rows_for_active_products(active)), 200, {"Content-Type": "text/html"}
 
 
 # ─── Actions ─────────────────────────────────────────────────────────────────
@@ -927,7 +953,7 @@ def update_search_term(slug: str):
 
 @app.route("/api/cards/<slug>/revert-sold", methods=["PUT"])
 def revert_sold_card(slug: str):
-    """Revert a sold card back to active status (user confirmed it still exists on store)."""
+    """Restock a sold card as a new active listing lifecycle."""
     from .config import load_config, save_config
 
     settings, products = load_config(CONFIG_PATH)
@@ -942,6 +968,30 @@ def revert_sold_card(slug: str):
     products = [reverted if p.slug == slug else p for p in products]
     save_config(CONFIG_PATH, settings, products)
     create_restock_listing(reverted, _inventory_db_path())
+
+    return jsonify({"ok": True, "title": product.title})
+
+
+@app.route("/api/cards/<slug>/restore-active", methods=["PUT"])
+def restore_active_card(slug: str):
+    """Undo a mistaken sold snapshot and move the same listing back to active."""
+    from .config import load_config, save_config
+
+    settings, products = load_config(CONFIG_PATH)
+    product = next((p for p in products if p.slug == slug), None)
+    if product is None:
+        return jsonify({"ok": False, "error": "Card not found"}), 404
+    if product.status != "sold" and not restore_active_listing(product, _inventory_db_path()):
+        return jsonify({"ok": False, "error": "Card is not sold"}), 400
+    if product.status != "sold":
+        return jsonify({"ok": True, "title": product.title})
+
+    import dataclasses as dc
+    restored = dc.replace(product, status="active", sold_at="")
+    products = [restored if p.slug == slug else p for p in products]
+    save_config(CONFIG_PATH, settings, products)
+    if not restore_active_listing(restored, _inventory_db_path()):
+        create_restock_listing(restored, _inventory_db_path())
 
     return jsonify({"ok": True, "title": product.title})
 

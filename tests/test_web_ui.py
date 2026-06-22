@@ -14,7 +14,7 @@ from pokemon_price_scheduler.infrastructure import history as history_store
 from pokemon_price_scheduler.history import close_connection
 from pokemon_price_scheduler.models import Product, SourceResult
 from pokemon_price_scheduler.scrapers import extract_store_products
-from pokemon_price_scheduler.ui_components import repricing_queue_fragment
+from pokemon_price_scheduler.ui_components import repricing_queue_fragment, source_evidence_panel
 
 
 class WebUiTests(unittest.TestCase):
@@ -173,6 +173,64 @@ class WebUiTests(unittest.TestCase):
         self.assertIn("identity-layout", html_text)
         self.assertIn("identity-picture-block", html_text)
         self.assertIn("identity-detail-block", html_text)
+
+    def test_source_evidence_replaces_decision_with_match_and_raw_price_context(self):
+        html_text = source_evidence_panel(
+            [
+                {
+                    "title": "Pokemon Japanese PSA 10",
+                    "url": "https://snkrdunk.com/products/123",
+                    "price_idr": 880000,
+                    "raw_price": "8000",
+                    "currency": "JPY",
+                    "source_kind": "snkrdunk_search",
+                    "is_legit": True,
+                    "relevance_score": 88,
+                }
+            ]
+        )
+        match = re.search(r'data-columns="([^"]*)"', html_text)
+        self.assertIsNotNone(match)
+        columns = json.loads(html.unescape(match.group(1)))
+        fields = [column["field"] for column in columns]
+        rows_match = re.search(r'data-rows="([^"]*)"', html_text)
+        self.assertIsNotNone(rows_match)
+        rows = json.loads(html.unescape(rows_match.group(1)))
+
+        self.assertIn("match", fields)
+        self.assertNotIn("decision", fields)
+        self.assertEqual(rows[0]["price"], 880000)
+        self.assertEqual(rows[0]["raw_price"], "JPY 8,000")
+        self.assertEqual(rows[0]["match"], 88)
+        self.assertEqual(rows[0]["match_status"], "Comparable")
+        self.assertEqual(rows[0]["source"], "snkrdunk_search")
+
+    def test_static_shell_has_source_specific_badges_and_price_with_raw_renderer(self):
+        html_text = Path("static/index.html").read_text(encoding="utf-8")
+
+        self.assertIn("sourceBadgeTone", html_text)
+        self.assertIn("snkrdunk", html_text)
+        self.assertIn("priceWithRaw", html_text)
+        self.assertIn("matchSignal", html_text)
+
+    def test_static_shell_has_stacked_sold_card_action_styles(self):
+        for path in ("static/index.html", "pokemon_price_scheduler/static/index.html"):
+            html_text = Path(path).read_text(encoding="utf-8")
+            self.assertIn("card-actions--sold", html_text)
+            self.assertIn("card-actions__row", html_text)
+            self.assertIn("card-actions__row--secondary", html_text)
+
+    def test_sold_card_action_renderer_uses_data_attributes_not_inline_javascript(self):
+        for path in ("static/index.html", "pokemon_price_scheduler/static/index.html"):
+            html_text = Path(path).read_text(encoding="utf-8")
+            start = html_text.index("soldActions: function(params)")
+            end = html_text.index("decisionBadge:", start)
+            renderer = html_text[start:end]
+
+            self.assertNotIn("onclick=", renderer)
+            self.assertIn("data-sold-action", renderer)
+            self.assertIn("data-sale-slug", renderer)
+            self.assertIn("handleSoldCardAction", html_text)
 
     def test_ai_repricing_advice_endpoint_handles_missing_api_key(self):
         history_db = Path(self.tmp.name) / "ai-history.sqlite3"
@@ -372,30 +430,46 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual([row["slug"] for row in rows], ["active-card"])
 
     def test_repricing_queue_route_uses_active_tokopedia_listings(self):
-        captured = {}
-
-        def fake_repricing_queue(active_slugs):
-            captured["active_slugs"] = active_slugs
-            return [
+        with patch.object(
+            web,
+            "get_all_products_with_trend",
+            return_value=[
                 {
                     "title": "Pokemon Japanese PSA 10",
                     "slug": self.active.slug,
-                    "tokopedia_price": 750000,
-                    "market_avg_price": 900000,
+                    "own_price_idr": 750000,
+                    "global_average_idr": 900000,
+                    "alert_level": "none",
+                    "alert_label": "OK",
                     "delta_percent": -16.7,
-                    "suggested_quick_sale": 828000,
-                    "suggested_normal": 882000,
-                    "suggested_max_profit": 945000,
-                    "recommended_action": "Raise price",
-                }
-            ]
-
-        with patch.object(web, "repricing_queue", side_effect=fake_repricing_queue):
+                    "price_delta_percent": -16.7,
+                },
+                {
+                    "title": "Sold Pokemon Card",
+                    "slug": self.sold.slug,
+                    "own_price_idr": 500000,
+                    "global_average_idr": 400000,
+                    "price_delta_percent": 25.0,
+                },
+            ],
+        ):
             response = self.client.get("/api/repricing")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(captured["active_slugs"], {self.active.slug})
-        self.assertNotIn(self.sold.slug, captured["active_slugs"])
+        html_text = response.get_data(as_text=True)
+        self.assertIn(self.active.slug, html_text)
+        self.assertIn("Raise price", html_text)
+        self.assertNotIn(self.sold.slug, html_text)
+
+    def test_repricing_queue_route_includes_active_cards_without_price_history(self):
+        with patch.object(web, "get_all_products_with_trend", return_value=[]), patch.object(web, "repricing_queue", return_value=[]):
+            response = self.client.get("/api/repricing")
+
+        self.assertEqual(response.status_code, 200)
+        html_text = response.get_data(as_text=True)
+        self.assertIn(self.active.slug, html_text)
+        self.assertIn("Missing market data", html_text)
+        self.assertNotIn(self.sold.slug, html_text)
 
     def test_add_card_uses_listing_title_when_available(self):
         listing_html = """
@@ -565,14 +639,20 @@ class WebUiTests(unittest.TestCase):
         cards_html = self.client.get("/api/cards").get_data(as_text=True)
         repricing_html = self.client.get("/api/repricing").get_data(as_text=True)
         self.assertIn("Sales Summary", sold_html)
-        self.assertIn("Bought price", sold_html)
-        self.assertIn("Sold price", sold_html)
-        self.assertIn("Rp 300.000", sold_html)
-        self.assertIn("Rp 900.000", sold_html)
-        self.assertIn("Rp 650.000", sold_html)
+        self.assertIn("Bought Price", sold_html)
+        self.assertIn("Sold Price", sold_html)
         self.assertIn(self.active.slug, sold_html)
         self.assertNotIn(self.active.slug, cards_html)
         self.assertNotIn(self.active.slug, repricing_html)
+
+        rows_match = re.search(r'data-rows="([^"]*)"', sold_html)
+        self.assertIsNotNone(rows_match)
+        ledger_rows = json.loads(html.unescape(rows_match.group(1)))
+        ledger_row = next(row for row in ledger_rows if row["slug"] == self.active.slug)
+        self.assertEqual(ledger_row["bought_at_price_idr"], 300000)
+        self.assertEqual(ledger_row["sold_price_idr"], 900000)
+        self.assertEqual(ledger_row["net_income_idr"], 650000)
+        self.assertEqual(ledger_row["data_quality"], "Complete")
 
         rows = sold_card_rows(web._inventory_db_path())
         self.assertEqual(rows[0]["bought_at_price_idr"], 300000)
@@ -624,10 +704,14 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(by_slug[self.sold.slug].sold_at, "2026-06-07T00:00:00+00:00")
 
         sold_html = self.client.get("/api/soldcards").get_data(as_text=True)
-        self.assertIn("Rp 200.000", sold_html)
-        self.assertIn("Rp 700.000", sold_html)
-        self.assertIn("Rp 450.000", sold_html)
-        self.assertIn("Edit Sale", sold_html)
+        rows_match = re.search(r'data-rows="([^"]*)"', sold_html)
+        self.assertIsNotNone(rows_match)
+        ledger_rows = json.loads(html.unescape(rows_match.group(1)))
+        ledger_row = next(row for row in ledger_rows if row["slug"] == self.sold.slug)
+        self.assertEqual(ledger_row["bought_at_price_idr"], 200000)
+        self.assertEqual(ledger_row["sold_price_idr"], 700000)
+        self.assertEqual(ledger_row["net_income_idr"], 450000)
+        self.assertEqual(ledger_row["data_quality"], "Complete")
 
     def test_restock_keeps_sold_sale_history_and_creates_active_listing_lifecycle(self):
         self.client.post(
@@ -659,6 +743,92 @@ class WebUiTests(unittest.TestCase):
 
         self.assertEqual(lifecycles, [("sold", 1), ("active", 2)])
         self.assertEqual(sale_count, 1)
+
+    def test_restore_active_removes_sold_snapshot_and_sale_income(self):
+        self.client.post(
+            f"/api/cards/{self.active.slug}/mark-sold",
+            json={
+                "sold_at": "2026-06-07",
+                "sold_price_idr": "900000",
+                "bought_at_price_idr": "300000",
+                "net_income_idr": "650000",
+            },
+        )
+
+        response = self.client.put(f"/api/cards/{self.active.slug}/restore-active")
+        self.assertEqual(response.status_code, 200)
+
+        _, products = load_config(self.config_path)
+        product = next(p for p in products if p.slug == self.active.slug)
+        self.assertEqual(product.status, "active")
+        self.assertEqual(product.sold_at, "")
+
+        sold_html = self.client.get("/api/soldcards").get_data(as_text=True)
+        cards_html = self.client.get("/api/cards").get_data(as_text=True)
+        self.assertNotIn(self.active.slug, sold_html)
+        self.assertIn(self.active.slug, cards_html)
+
+        with closing(connect_inventory(web._inventory_db_path())) as conn:
+            lifecycles = conn.execute(
+                "SELECT status, sold_at, lifecycle FROM listings WHERE slug = ? ORDER BY id",
+                (self.active.slug,),
+            ).fetchall()
+            sale_count = conn.execute(
+                "SELECT COUNT(*) FROM sales WHERE slug = ?",
+                (self.active.slug,),
+            ).fetchone()[0]
+
+        self.assertEqual(lifecycles, [("active", "", 1)])
+        self.assertEqual(sale_count, 0)
+        summary = income_summary(web._inventory_db_path())
+        self.assertEqual(summary["sold_count"], 0)
+        self.assertEqual(summary["net_income_idr"], 0)
+
+    def test_restore_active_cleans_stale_sold_snapshot_when_config_is_already_active(self):
+        self.client.post(
+            f"/api/cards/{self.active.slug}/mark-sold",
+            json={
+                "sold_at": "2026-06-07",
+                "sold_price_idr": "900000",
+                "bought_at_price_idr": "300000",
+                "net_income_idr": "650000",
+            },
+        )
+        self.client.put(f"/api/cards/{self.active.slug}/revert-sold")
+
+        response = self.client.put(f"/api/cards/{self.active.slug}/restore-active")
+        self.assertEqual(response.status_code, 200)
+
+        _, products = load_config(self.config_path)
+        product = next(p for p in products if p.slug == self.active.slug)
+        self.assertEqual(product.status, "active")
+
+        sold_html = self.client.get("/api/soldcards").get_data(as_text=True)
+        cards_html = self.client.get("/api/cards").get_data(as_text=True)
+        self.assertNotIn(self.active.slug, sold_html)
+        self.assertIn(self.active.slug, cards_html)
+
+        with closing(connect_inventory(web._inventory_db_path())) as conn:
+            lifecycles = conn.execute(
+                "SELECT status, sold_at, lifecycle FROM listings WHERE slug = ? ORDER BY id",
+                (self.active.slug,),
+            ).fetchall()
+            sale_count = conn.execute(
+                "SELECT COUNT(*) FROM sales WHERE slug = ?",
+                (self.active.slug,),
+            ).fetchone()[0]
+
+        self.assertEqual(lifecycles, [("active", "", 2)])
+        self.assertEqual(sale_count, 0)
+
+    def test_sold_cards_uses_restore_and_restock_actions(self):
+        sold_html = self.client.get("/api/soldcards").get_data(as_text=True)
+        shell = Path("static/index.html").read_text(encoding="utf-8")
+
+        self.assertIn("soldActions", sold_html)
+        self.assertIn("Restore Active", shell)
+        self.assertIn("Restock as New", shell)
+        self.assertNotIn("Mark Active", shell)
 
     def test_sync_store_dedupes_active_and_sold_duplicates(self):
         self.config_path.write_text(
@@ -828,11 +998,54 @@ class WebUiTests(unittest.TestCase):
         self.assertIn("Missing market data", html_text)
 
     def test_sold_cards_use_product_card_component(self):
-        self.assert_fragment_has(
-            "/api/soldcards",
-            "product-card",
-            "Mark Active",
+        self.client.post(
+            f"/api/cards/{self.sold.slug}/sale-details",
+            json={
+                "sold_at": "2026-06-07",
+                "sold_price_idr": "700000",
+                "bought_at_price_idr": "200000",
+                "net_income_idr": "450000",
+            },
         )
+        response = self.client.get("/api/soldcards")
+        self.assertEqual(response.status_code, 200)
+        html_text = response.get_data(as_text=True)
+
+        self.assertIn("sold-cards-table", html_text)
+        self.assertIn("data-columns", html_text)
+        self.assertIn("data-rows", html_text)
+        self.assertIn("sales-ledger-controls", html_text)
+        self.assertIn("searchSoldCards", html_text)
+        self.assertIn("filterSoldCardsQuality", html_text)
+        self.assertIn("filterSoldCardsPeriod", html_text)
+        self.assertIn("soldActions", html_text)
+        self.assertIn("Complete", html_text)
+        self.assertNotIn("product-card--sold", html_text)
+        shell = Path("static/index.html").read_text(encoding="utf-8")
+        self.assertIn("Restore Active", shell)
+        self.assertIn("Restock as New", shell)
+
+        match = re.search(r'data-rows="([^"]*)"', html_text)
+        self.assertIsNotNone(match)
+        rows = json.loads(html.unescape(match.group(1)))
+        row = next(item for item in rows if item["slug"] == self.sold.slug)
+        self.assertEqual(row["sold_price_idr"], 700000)
+        self.assertEqual(row["bought_at_price_idr"], 200000)
+        self.assertEqual(row["net_income_idr"], 450000)
+        self.assertEqual(row["data_quality"], "Complete")
+
+    def test_sold_cards_marks_missing_sale_data(self):
+        response = self.client.get("/api/soldcards")
+        self.assertEqual(response.status_code, 200)
+        html_text = response.get_data(as_text=True)
+
+        self.assertIn("Missing sale data", html_text)
+
+        match = re.search(r'data-rows="([^"]*)"', html_text)
+        self.assertIsNotNone(match)
+        rows = json.loads(html.unescape(match.group(1)))
+        row = next(item for item in rows if item["slug"] == self.sold.slug)
+        self.assertEqual(row["data_quality"], "Missing sale data")
 
     def test_opportunities_buy_list_can_create_and_render_detail(self):
         response = self.client.post(
@@ -940,6 +1153,40 @@ class WebUiTests(unittest.TestCase):
         self.assertIn("active", html_text)
         self.assertIn("sold", html_text)
         self.assertIn("Qty", html_text)
+
+    def test_inventory_sync_removes_stale_active_listing_not_in_config(self):
+        first_inventory_html = self.client.get("/api/inventory").get_data(as_text=True)
+        self.assertIn(self.active.slug, first_inventory_html)
+
+        self.config_path.write_text(
+            json.dumps(
+                {
+                    "settings": {"min_own_price_idr": 0},
+                    "products": [
+                        {
+                            "title": self.sold.title,
+                            "own_price_idr": self.sold.own_price_idr,
+                            "tokopedia_url": self.sold.tokopedia_url,
+                            "status": self.sold.status,
+                            "sold_at": self.sold.sold_at,
+                            "sources": [],
+                        },
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        inventory_html = self.client.get("/api/inventory").get_data(as_text=True)
+        self.assertNotIn(self.active.slug, inventory_html)
+
+        with closing(connect_inventory(web._inventory_db_path())) as conn:
+            stale_count = conn.execute(
+                "SELECT COUNT(*) FROM listings WHERE slug = ? AND status = 'active'",
+                (self.active.slug,),
+            ).fetchone()[0]
+
+        self.assertEqual(stale_count, 0)
 
     def test_opportunities_page_uses_grid_shell(self):
         self.client.post(

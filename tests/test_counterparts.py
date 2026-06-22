@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,7 +9,7 @@ from pokemon_price_scheduler.infrastructure.counterparts import (
     build_counterpart_candidates,
     convert_to_idr,
 )
-from pokemon_price_scheduler.models import Product
+from pokemon_price_scheduler.models import PriceObservation, Product, ProductAnalysis, Source, SourceResult
 
 
 class CounterpartTests(unittest.TestCase):
@@ -78,6 +79,52 @@ class CounterpartTests(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["currency"], "USD")
             self.assertEqual(rows[0]["converted_price_idr"], 160000)
+
+    def test_observation_currency_is_persisted_with_price_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "history.sqlite3"
+            product = Product(title="Pikachu SAR 001/100 Japanese", own_price_idr=1_000_000)
+            run_at = datetime(2026, 6, 12, tzinfo=timezone.utc)
+            source = Source("snkrdunk search", "snkrdunk_search", "https://snkrdunk.com/v3/search")
+            analysis = ProductAnalysis(
+                product=product,
+                run_at=run_at,
+                source_results=[
+                    SourceResult(
+                        source=source,
+                        observations=[
+                            PriceObservation(
+                                source_name=source.name,
+                                source_kind=source.kind,
+                                url="https://snkrdunk.com/products/123",
+                                price_idr=880000,
+                                title="Pikachu SAR 001/100 Japanese",
+                                currency="JPY",
+                                raw_price="8000",
+                                is_legit=True,
+                                relevance_score=88,
+                            )
+                        ],
+                    )
+                ],
+                legit_market_prices=[880000],
+                market_min_idr=880000,
+                market_median_idr=880000,
+                global_average_idr=880000,
+                price_delta_percent=13.64,
+                alert_level="red",
+                underpriced_by_idr=None,
+                underpriced_by_percent=None,
+                recommendation="",
+            )
+
+            with patch.object(history_store, "DB_PATH", db):
+                history_store.save_run([analysis])
+                rows = history_store.get_observations_for_slug(product.slug)
+
+            self.assertEqual(rows[0]["currency"], "JPY")
+            self.assertEqual(rows[0]["price_idr"], 880000)
+            self.assertEqual(rows[0]["raw_price"], "8000")
 
 
 if __name__ == "__main__":

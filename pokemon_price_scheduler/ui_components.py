@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+from datetime import datetime
 from collections.abc import Iterable
 from typing import Any
 
@@ -167,6 +168,22 @@ def format_trend(value: float | None) -> str:
 
 def format_money_or_missing(value: int | None) -> str:
     return "Insufficient market data" if value is None else idr(value)
+
+
+def format_raw_market_price(raw_price: object, currency: object) -> str:
+    raw = "" if raw_price is None else str(raw_price).strip()
+    code = ("" if currency is None else str(currency).strip().upper()) or "IDR"
+    if not raw or code == "IDR":
+        return ""
+    try:
+        amount = float(raw.replace(",", ""))
+    except ValueError:
+        return f"{code} {raw}" if code not in raw.upper() else raw
+    if code == "JPY":
+        return f"JPY {amount:,.0f}"
+    if code == "USD":
+        return f"USD {amount:,.2f}"
+    return f"{code} {raw}"
 
 
 def first_positive_int(*values: int | None) -> int | None:
@@ -660,25 +677,28 @@ def source_evidence_panel(observations: list[dict[str, Any]]) -> str:
     rows = []
     for obs in sorted(observations, key=lambda item: item["price_idr"], reverse=True)[:30]:
         used = bool(obs.get("is_legit"))
+        score = round(float(obs.get("relevance_score") or 0))
         rows.append({
             "title": obs.get("title") or obs.get("source_name"),
             "url": obs.get("url", ""),
             "price": obs.get("price_idr"),
+            "raw_price": format_raw_market_price(obs.get("raw_price"), obs.get("currency")),
             "source": obs.get("source_kind", "-"),
-            "decision": "Used" if used else "Filtered",
+            "match": score,
+            "match_status": "Comparable" if used else "Excluded",
             "used": used,
         })
     return panel(
         "Source Evidence",
         data_table(
-            ["title", "price", "source", "decision"],
+            ["title", "price", "source", "match"],
             rows,
             class_name="data-table--compact",
             columns=[
                 {"field": "title", "headerName": "Listing", "cellRenderer": "externalLink", "flex": 2, "minWidth": 300},
-                {"field": "price", "headerName": "Price", "cellRenderer": "moneyValue", "width": 150, "type": "numericColumn"},
+                {"field": "price", "headerName": "Price", "cellRenderer": "priceWithRaw", "width": 170, "type": "numericColumn"},
                 {"field": "source", "headerName": "Source", "cellRenderer": "sourceBadge", "width": 170},
-                {"field": "decision", "headerName": "Decision", "cellRenderer": "decisionBadge", "width": 130},
+                {"field": "match", "headerName": "Match", "cellRenderer": "matchSignal", "width": 160, "type": "numericColumn", "alwaysRender": True},
             ],
         ),
         subtitle="Parsed marketplace observations from the latest saved run.",
@@ -712,11 +732,12 @@ def sold_cards_fragment(products: list[Any], summary: dict[str, Any] | None = No
                 metric_card("Sold cards", f"{int(summary.get('sold_count') or 0):,}", "Sales with income records", icon="cards"),
                 metric_card("Net income", idr(summary.get("net_income_idr") or 0), "Total manually recorded income", icon="market"),
                 metric_card("Monthly view", str(len(monthly)), period_note, icon="run"),
+                metric_card("Needs data", str(sum(1 for product in products if _sold_row_quality(product) != "Complete")), "Rows missing sale fields", "warning", icon="alert"),
             ]
         ),
         subtitle="Income metrics use sold date and manually entered net income.",
     )
-    cards = []
+    rows = []
     for product in products:
         if isinstance(product, dict):
             title = product.get("title", "-")
@@ -738,31 +759,78 @@ def sold_cards_fragment(products: list[Any], summary: dict[str, Any] | None = No
             net_income = None
         sold_date = sold_at[:10] if sold_at else "-"
         sold_value = sold_at[:10] if sold_at else ""
-        bought_price_value = "" if bought_at_price is None else str(bought_at_price)
-        sold_price_value = "" if sold_price is None else str(sold_price)
-        net_income_value = "" if net_income is None else str(net_income)
-        cards.append(
-            f"""
-            <article class="product-card product-card--sold">
-              <div class="product-card__header">
-                <a class="product-card__title" href="/cards/{h(slug)}">{h(title)}</a>
-                {badge("Sold", "danger")}
-              </div>
-              <div class="product-card__meta">{h(language)}</div>
-              <div class="mini-metrics">
-                {metric_card("Listing price", idr(price))}
-                {metric_card("Sold price", idr(sold_price))}
-                {metric_card("Bought price", idr(bought_at_price))}
-                {metric_card("Sold at", h(sold_date))}
-                {metric_card("Net income", idr(net_income))}
-              </div>
-              <div class="card-actions">
-                {button("Edit Sale", onclick=f"openEditSaleModal('{h(slug)}', '{h(sold_value)}', '{h(sold_price_value)}', '{h(bought_price_value)}', '{h(net_income_value)}')", variant="primary")}
-                {button("Mark Active", onclick=f"revertSold('{h(slug)}')", variant="secondary")}
-              </div>
-            </article>"""
+        parsed_sold_date = _parse_date(sold_value)
+        rows.append(
+            {
+                "title": title,
+                "slug": slug,
+                "language": language,
+                "listing_price_idr": price,
+                "sold_price_idr": sold_price,
+                "bought_at_price_idr": bought_at_price,
+                "net_income_idr": net_income,
+                "sold_date": sold_value,
+                "sold_at_display": sold_date,
+                "sold_month": parsed_sold_date.strftime("%Y-%m") if parsed_sold_date else "",
+                "sold_year": parsed_sold_date.strftime("%Y") if parsed_sold_date else "",
+                "data_quality": _sold_row_quality(product),
+                "actions": slug,
+            }
         )
-    return summary_panel + f'<div class="cards-grid">{"".join(cards)}</div>'
+    controls = f"""
+    <div class="toolbar sales-ledger-controls">
+      <input class="input sales-ledger-search" type="search" placeholder="Search sold cards" oninput="searchSoldCards(this.value)">
+      {button("All", onclick="filterSoldCardsQuality('')", variant="secondary")}
+      {button("Complete", onclick="filterSoldCardsQuality('Complete')", variant="secondary")}
+      {button("Missing sale data", onclick="filterSoldCardsQuality('Missing sale data')", variant="secondary")}
+      {button("All dates", onclick="filterSoldCardsPeriod('')", variant="secondary")}
+      {button("This month", onclick="filterSoldCardsPeriod('this_month')", variant="secondary")}
+      {button("Last month", onclick="filterSoldCardsPeriod('last_month')", variant="secondary")}
+      {button("This year", onclick="filterSoldCardsPeriod('this_year')", variant="secondary")}
+    </div>"""
+    ledger = data_table(
+        ["title", "language", "listing_price_idr", "sold_price_idr", "bought_at_price_idr", "net_income_idr", "sold_date", "data_quality", "actions"],
+        rows,
+        table_id="sold-cards-table",
+        class_name="data-table--compact sold-cards-table",
+        columns=[
+            {"field": "title", "headerName": "Card", "cellRenderer": "cardLink", "flex": 2, "minWidth": 280},
+            {"field": "language", "headerName": "Language", "width": 120},
+            {"field": "listing_price_idr", "headerName": "Listing Price", "cellRenderer": "moneyValue", "width": 150, "type": "numericColumn"},
+            {"field": "sold_price_idr", "headerName": "Sold Price", "cellRenderer": "moneyValue", "width": 150, "type": "numericColumn"},
+            {"field": "bought_at_price_idr", "headerName": "Bought Price", "cellRenderer": "moneyValue", "width": 150, "type": "numericColumn"},
+            {"field": "net_income_idr", "headerName": "Net Income", "cellRenderer": "moneyValue", "width": 150, "type": "numericColumn"},
+            {"field": "sold_date", "headerName": "Sold Date", "width": 130},
+            {"field": "data_quality", "headerName": "Status", "cellRenderer": "qualityBadge", "width": 170, "alwaysRender": True},
+            {"field": "sold_month", "headerName": "Sold Month", "hide": True, "alwaysRender": True},
+            {"field": "sold_year", "headerName": "Sold Year", "hide": True, "alwaysRender": True},
+            {"field": "actions", "headerName": "Actions", "cellRenderer": "soldActions", "width": 320, "filter": False, "sortable": False, "alwaysRender": True},
+        ],
+    )
+    return summary_panel + panel("Sales Ledger", controls + ledger, subtitle="Search, filter, and edit completed listing lifecycles.")
+
+
+def _sold_row_quality(product: Any) -> str:
+    if isinstance(product, dict):
+        sold_at = product.get("sold_at")
+        bought_at_price = product.get("bought_at_price_idr")
+        sold_price = product.get("sold_price_idr")
+        net_income = product.get("net_income_idr")
+    else:
+        sold_at = getattr(product, "sold_at", "")
+        bought_at_price = None
+        sold_price = None
+        net_income = None
+    return "Complete" if sold_at and bought_at_price is not None and sold_price is not None and net_income is not None else "Missing sale data"
+
+
+def _parse_date(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value[:10])
+    except ValueError:
+        return None
 
 
 def opportunities_fragment(opportunities: list[dict[str, Any]]) -> str:

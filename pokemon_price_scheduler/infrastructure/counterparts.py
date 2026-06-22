@@ -7,30 +7,7 @@ from typing import Any
 
 from pokemon_price_scheduler.domain.models import Product
 from pokemon_price_scheduler.domain.text import clean_text
-
-
-FX_RATES_TO_IDR = {
-    "IDR": 1.0,
-    "USD": 16_000.0,
-    "JPY": 110.0,
-}
-
-
-def convert_to_idr(amount: float | int | None, currency: str) -> tuple[int | None, float | None]:
-    currency = normalize_currency(currency)
-    rate = FX_RATES_TO_IDR.get(currency)
-    if amount is None or rate is None:
-        return None, rate
-    return round(float(amount) * rate), rate
-
-
-def normalize_currency(currency: str | None) -> str:
-    value = (currency or "IDR").upper()
-    if value in {"US$", "$"}:
-        return "USD"
-    if value in {"¥", "YEN"}:
-        return "JPY"
-    return value if value in FX_RATES_TO_IDR else "IDR"
+from pokemon_price_scheduler.infrastructure.fx import FX_RATES_TO_IDR, convert_to_idr, normalize_currency
 
 
 def infer_currency(source_kind: str, raw_price: str = "") -> str:
