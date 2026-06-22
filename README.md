@@ -60,13 +60,13 @@ Use Card Detail for one-card pricing decisions:
 - Generate cached AI repricing advice from current pricing evidence.
 - Refresh and review international counterpart candidates with raw currency and converted IDR prices.
 - Update the current Tokopedia listing price from the product page.
-- Review price history and source evidence.
+- Review price history and source evidence. Source Evidence shows the normalized IDR price used for analysis and, for non-IDR sources such as SnkrDunk, the original raw marketplace amount.
 - Mark an active card sold.
 - Edit sale details for a sold card.
 
 The card search term is important: `search_terms[0]` is the broad competitor query used for Tokopedia, eBay sold listings, and SnkrDunk during both full scheduler runs and single-card refreshes.
 
-AI advice is generated on demand and cached by the exact evidence input. If the evidence has not changed, the app reuses the cached advice instead of calling the AI again. Counterpart refresh uses already collected source observations and deterministic fixed FX rates; it does not fetch live exchange rates.
+AI advice is generated on demand and cached by the exact evidence input. If the evidence has not changed, the app reuses the cached advice instead of calling the AI again. SnkrDunk source observations are converted from JPY to IDR with deterministic fixed FX before market calculations. Counterpart refresh uses already collected source observations and the same fixed FX approach; it does not fetch live exchange rates.
 
 ### Repricing Queue
 
@@ -83,7 +83,7 @@ The queue recommends:
 
 - `Lower price` when your listing is more than 10% above market average.
 - `Raise price` when your listing is more than 10% below market average.
-- `Missing market data` when no reliable market average exists.
+- `Missing market data` when no reliable market average exists, including active cards that have not appeared in scheduler price-history results yet.
 - `Aligned` when your price is within +/-10% of market average.
 
 ### Inventory
@@ -95,6 +95,7 @@ Use Inventory to review owned stock separately from active Tokopedia listings:
 - See active listed stock.
 - See inventory created from opportunities.
 - Keep inventory-only purchases out of Store Listings and Repricing Queue until they are listed.
+- Active Tokopedia listing rows are synced from active product config, so stale active SQLite listing rows are removed when the product is no longer active in config.
 
 ### Opportunities
 
@@ -120,13 +121,18 @@ Route: `/soldcards`
 
 Use Sold Cards for sales and income tracking:
 
-- Review completed listing lifecycles.
+- Review completed listing lifecycles in a searchable sales ledger.
+- Filter the ledger by complete or missing sale data, and by common sale periods.
+- Page through larger sales history with AG Grid pagination.
 - Record sold date, sold price, bought price, and net income.
 - Preview marketplace fee amount and percentage in the sale modal from sold price minus net income/settlement.
 - Edit existing sale details.
-- Restock a sold card with `Mark Active`.
+- Use `Restore Active` when a card was marked sold by mistake. This removes the sold snapshot and sale income record, then returns the same listing to Store Listings.
+- Use `Restock as New` when the card really sold and you have another copy. This keeps the sale history and creates a new active listing lifecycle.
 
-Restocking creates a new active listing lifecycle and preserves the old sale record.
+Restocking creates a new active listing lifecycle and preserves the old sale record. Restoring active is an undo/correction flow and removes the sale from Sold Cards and income totals.
+
+Rows are marked `Complete` only when sold date, sold price, bought price, and net income are all present. Rows missing any of those values remain visible as `Missing sale data` so old sold snapshots can be backfilled.
 
 ### Reports
 
@@ -167,6 +173,7 @@ Main files and directories:
 - `data/price_history.sqlite3` - runs, observations, source fetches, price history, inventory, opportunities, listings, and sales.
 - `ai_repricing_advice` table - cached Card Detail AI advice keyed by card and evidence hash.
 - `counterpart_candidates` table - international counterpart evidence with raw currency, converted IDR price, and match confidence.
+- `observations` table - scraped marketplace evidence with normalized IDR price, source currency, raw price, match score, and comparable/excluded status.
 - `data/scheduler.log` - background scheduler output from the website.
 - `data/card-images/` - cached Tokopedia product images.
 - `reports/latest.md` - latest Markdown report.

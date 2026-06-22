@@ -42,6 +42,7 @@ pokemon_price_scheduler/
 │   │                            #   reject_low_tokopedia_outliers()
 │   ├── scrapers.py             # MarketplaceScraper + extract_tokopedia_search_items(),
 │   │                            #   extract_ebay_items(), extract_snkrdunk_api()
+│   ├── fx.py                   # Deterministic IDR conversion helpers for marketplace evidence
 │   ├── history.py              # SQLite persistence (thread-local connections via threading.local)
 │   ├── counterparts.py         # Counterpart evidence normalization and fixed FX conversion
 │   ├── reports.py              # ReportEngine + 6 concrete Report subclasses
@@ -101,9 +102,11 @@ SQLite stores both run trace data and daily workflow data:
 - `opportunities` - persistent buy-list candidates with source/link/price and conversion audit fields
 - `inventory_items` - owned stock records created from opportunities and linked to optional listings
 
+`observations` stores normalized `price_idr` plus the source `currency` and `raw_price` when the source reports a non-IDR amount. This keeps all analysis math in IDR while preserving original marketplace evidence for Card Detail debugging.
+
 `price_history` records `card_id`, `tokopedia_price`, `market_avg_price`, `delta_percent`, `alert_status`, `source_summary`, and `created_at`. It also stores run/result references where available. Snapshots are inserted from both the legacy `save_run()` path and the v2 `TraceStore.save_results()` path, so scheduler runs update history regardless of which persistence path is used.
 
-`inventory.py` owns the `cards` / `listings` / `sales` / `opportunities` / `inventory_items` schema. During this transition, `config/products.json` remains scheduler-compatible source config, while SQLite is the source of truth for sale analytics, opportunity audit history, and owned inventory. Web mutations mirror lifecycle changes into both places when a listing must be scheduler-visible.
+`inventory.py` owns the `cards` / `listings` / `sales` / `opportunities` / `inventory_items` schema. During this transition, `config/products.json` remains scheduler-compatible source config, while SQLite is the source of truth for sale analytics, opportunity audit history, and owned inventory. Web mutations mirror lifecycle changes into both places when a listing must be scheduler-visible. Inventory sync prunes active SQLite listing rows that no longer correspond to active config products, while preserving sold lifecycles and owned inventory rows. Sold Cards reads completed listing lifecycles from SQLite and renders them as an AG Grid sales ledger with client-side search, filters, pagination, and row actions.
 
 ### Runtime Competitor Sources
 
@@ -115,14 +118,17 @@ Stored `sources` entries with kinds `tokopedia_find`, `ebay_sold`, and `snkrdunk
 
 Card Detail exposes an on-demand AI Repricing Copilot. `infrastructure/ai.py` builds a compact evidence payload from local prices, trends, observations, suggested prices, and counterpart candidates, then calls the MiniMax-compatible client only when the cached input hash is missing. `POST /api/cards/<slug>/ai-repricing-advice?force=1` intentionally bypasses that cache for unchanged evidence. Advice failures are saved as non-fatal error records so the page can keep showing raw evidence.
 
-`infrastructure/counterparts.py` owns deterministic counterpart candidate preparation and fixed currency conversion. V1 seeds counterpart candidates from current source observations, infers USD/JPY/IDR from source/raw price, stores converted IDR values with the FX rate used, and records a deterministic match confidence/reason. The current FX rates are static application constants, not live market rates. Future source connectors such as TCGplayer, PriceCharting, Yuyutei, and Mercari should write into the same `counterpart_candidates` shape.
+`infrastructure/fx.py` owns deterministic marketplace currency conversion. SnkrDunk observations are reported in JPY and converted into IDR before source scoring, market-average calculation, persistence, and Card Detail Source Evidence rendering. The original JPY amount remains on `raw_price` with `currency='JPY'`. eBay/counterpart evidence follows the same shared helper. The current FX rates are static application constants, not live market rates.
+
+`infrastructure/counterparts.py` owns deterministic counterpart candidate preparation. V1 seeds counterpart candidates from current source observations, infers USD/JPY/IDR from source/raw price, stores converted IDR values with the FX rate used, and records a deterministic match confidence/reason. Future source connectors such as TCGplayer, PriceCharting, Yuyutei, and Mercari should write into the same `counterpart_candidates` shape.
 
 ### Inventory and Sales Lifecycle
 
 - A `card` is the parsed identity: name, set, number, rarity, language, and condition.
 - A `listing` is one Tokopedia listing lifecycle. Active cards and sold cards are listing states, not separate product types.
 - A `sale` is created when a listing is manually marked sold or when existing sold-card details are edited.
-- Restocking a sold card creates a new active listing lifecycle and preserves the prior sold listing and sale row.
+- Restoring a sold card to active is an undo/correction flow: the existing sold listing is moved back to active and the linked sale row is deleted so income totals no longer count it. If config already says active while SQLite still has a stale sold listing, restore deletes the stale sold snapshot and sale row instead of creating another active lifecycle.
+- Restocking a sold card as new creates a new active listing lifecycle and preserves the prior sold listing and sale row.
 - Sale fields currently captured: `sold_at`, `sold_price_idr`, `bought_at_price_idr`, and `net_income_idr`.
 - Net income is manual. Sold price and bought price are stored separately to support future marketplace fee, profit, margin, and ROI calculations.
 
@@ -232,13 +238,14 @@ Main output of a run. Fields: `product`, `run_at`, `source_results[]`, `market_m
 | `/api/repricing` | GET | Repricing Queue HTML fragment |
 | `/api/cards/<slug>/mark-sold` | POST | Mark active listing sold and record sold price, bought price, sold date, and net income |
 | `/api/cards/<slug>/sale-details` | POST | Edit sale details for existing sold cards |
+| `/api/cards/<slug>/restore-active` | PUT | Undo a mistaken sold snapshot and return the same listing to active |
 | `/api/cards/<slug>/revert-sold` | PUT | Restock a sold card by creating a new active listing lifecycle |
 | `/api/cards/<slug>/update-price` | PUT | Fetch current Tokopedia listing price |
 | `/api/opportunities` | GET | Persistent buy-list opportunities table HTML fragment |
 | `/api/opportunities` | POST | Create a new buy-list opportunity |
 | `/api/opportunities/<slug>` | GET | Opportunity detail fragment |
 | `/api/opportunities/<slug>/convert` | POST | Convert opportunity into owned inventory, and optionally an active Store Listing |
-| `/api/soldcards` | GET | Sold cards grid HTML fragment |
+| `/api/soldcards` | GET | Sold Cards sales ledger HTML fragment with summary, filters, pagination, and row actions |
 | `/api/products/sync` | POST | Sync new products from Tokopedia store page |
 | `/api/cards/add` | POST | Add new card by URL |
 | `/api/cards/<slug>/search-term` | PUT | Update search keyword |
@@ -298,7 +305,7 @@ Single HTML file with:
 - **Toast system**: `showToast(message, type)` with success/error/info variants
 - **AI/Card Detail operations**: `generateAiAdvice(slug)` posts to the cached AI advice endpoint; `refreshCounterparts(slug)` rebuilds counterpart candidates from stored observations
 - **Opportunity operations**: `submitOpportunity()` creates buy-list rows; `submitConvertOpportunity()` converts them into inventory and optional Store Listings
-- **Scheduler operations**: `refreshCard()`, `syncNewProducts()`, `addCard()`, `updateSearchTerm()`, `revertSold()`, `updatePrice()`, `submitMarkSold()`
+- **Scheduler operations**: `refreshCard()`, `syncNewProducts()`, `addCard()`, `updateSearchTerm()`, `revertSold()`, `restoreActive()`, `updatePrice()`, `submitMarkSold()`
 
 ---
 

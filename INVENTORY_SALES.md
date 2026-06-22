@@ -12,6 +12,8 @@ The app is moving from a simple `status = sold` archive toward a proper inventor
 
 `config/products.json` still exists for scheduler compatibility. The live app mirrors listing lifecycle changes into SQLite so income analysis can use durable sale records without breaking the current scheduler.
 
+Inventory sync removes stale active SQLite listing rows that no longer correspond to active config products. Sold lifecycles and owned inventory rows are preserved.
+
 ## SQLite Tables
 
 All inventory/sales tables live in `data/price_history.sqlite3` and are initialized by `pokemon_price_scheduler/inventory.py`.
@@ -113,7 +115,22 @@ Behavior:
 - Updates `sold_price_idr`, `bought_at_price_idr`, and `net_income_idr`.
 - Allows backfilling existing sold cards that were detected by store sync before income fields existed.
 
-### Restock
+### Restore Active
+
+Use `PUT /api/cards/<slug>/restore-active`.
+
+Behavior:
+
+- Treats the sold state as a mistaken snapshot or correction.
+- Updates the config product back to `active`.
+- Clears config `sold_at`.
+- Moves the existing sold SQLite listing back to `active`.
+- Clears listing `sold_at`.
+- Deletes the linked `sales` row so Sold Cards and income totals no longer count it.
+- Does not create a new listing lifecycle.
+- If config already says the product is active but SQLite still has a sold listing for the same slug/URL, Restore Active cleans that stale sold snapshot and linked sale row without creating another active listing.
+
+### Restock as New
 
 Use `PUT /api/cards/<slug>/revert-sold`.
 
@@ -133,8 +150,10 @@ Card detail:
 Sold Cards page:
 
 - Starts with `Sales Summary`.
-- Shows listing price, sold price, bought price, sold date, and net income.
-- Provides `Edit Sale` and `Mark Active`.
+- Shows a searchable, filterable AG Grid sales ledger with listing price, sold price, bought price, sold date, net income, and data quality.
+- Provides `Edit Sale`, `Restore Active`, and `Restock as New` from the ledger actions column.
+- Uses client-side pagination with 25, 50, and 100 row page sizes.
+- Marks rows as `Complete` only when sold date, sold price, bought price, and net income are all present; otherwise rows show `Missing sale data`.
 
 The sale modal must collect:
 
@@ -177,6 +196,7 @@ When adding calculated fields, keep manual `net_income_idr` available as an over
 - The scheduler still reads products from `config/products.json`.
 - Dashboard, Store Listings, and Repricing Queue continue to filter active listings from config.
 - Sold Cards and sale summaries read from SQLite after syncing config products into inventory tables.
+- Inventory active listing rows should match active config products after sync. Extra active SQLite rows are stale and should be pruned.
 - Opportunities can create inventory-only rows or active listing rows. See `OPPORTUNITIES_INVENTORY.md` for the buy-list conversion workflow.
 - Tests should cover both config state and SQLite inventory state after each lifecycle mutation.
 
@@ -186,5 +206,6 @@ When adding calculated fields, keep manual `net_income_idr` available as an over
 - Mark Sold removes the item from Store Listings and Repricing Queue.
 - Mark Sold creates a `sales` row.
 - Edit Sale updates existing sold cards without creating duplicate sales.
-- Restock creates a new active listing lifecycle while preserving the old sale.
+- Restore Active removes a mistaken sold snapshot, deletes its sale row, and returns the same listing to active.
+- Restock as New creates a new active listing lifecycle while preserving the old sale.
 - Existing scheduler runs and price history snapshots still work for active listings.
